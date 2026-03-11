@@ -7,15 +7,12 @@ module ins_decode (
     input  wire [31:0] id_instruction_in,
     input  wire [31:0] id_pc_plus_4_in,
     input  wire [31:0] id_pc_in,
-
     input  wire [4:0]  ex_rd_addr_in,
     input  wire        ex_mem_read_in,
     input  wire        ex_reg_write_in,
-
     input  wire [4:0]  wb_write_addr_in,
     input  wire [31:0] wb_write_data_in,
     input  wire        wb_reg_write_en_in,
-
     output wire        pipeline_stall_out,
     output wire [31:0] id_pc_plus_4_out,
     output wire [31:0] id_pc_out,
@@ -37,9 +34,9 @@ module ins_decode (
     output wire        id_write_from_pc_out
 );
 
-    wire [6:0] opcode = id_instruction_in[6:0];
-    wire [2:0] funct3 = id_instruction_in[14:12];
-    wire [6:0] funct7 = id_instruction_in[31:25];
+    assign id_instruction_out = id_instruction_in;
+    assign id_pc_plus_4_out   = id_pc_plus_4_in;
+    assign id_pc_out          = id_pc_in;
 
     assign id_rs1_addr_out = id_instruction_in[19:15];
     assign id_rs2_addr_out = id_instruction_in[24:20];
@@ -53,31 +50,31 @@ module ins_decode (
         .pipeline_stall(pipeline_stall_out)
     );
 
+    reg_file rf (
+        .clk(clk),
+        .rst(rst),
+        .read_addr1(id_rs1_addr_out),
+        .read_addr2(id_rs2_addr_out),
+        .write_addr(wb_write_addr_in),
+        .write_data(wb_write_data_in),
+        .write_en(wb_reg_write_en_in),
+        .read_data1(id_read_data1_out),
+        .read_data2(id_read_data2_out)
+    );
+
     control_unit cu (
-        .opcode(opcode),
-        .funct3(funct3),
-        .funct7(funct7),
+        .opcode(id_instruction_in[6:0]),
+        .funct3(id_instruction_in[14:12]),
+        .funct7(id_instruction_in[31:25]),
         .RegWrite(id_reg_write_out),
         .MemToReg(id_mem_to_reg_out),
         .MemRead(id_mem_read_out),
         .MemWrite(id_mem_write_out),
         .ALUSrc(id_alu_src_out),
-        .Branch(id_branch_out),
         .ALUCtrl(id_alu_ctrl_out),
-        .WriteFromPC(id_write_from_pc_out),
-        .Jump(id_jump_out)
-    );
-
-    reg_file rf (
-        .clk(clk),
-        .rst(rst),
-        .read_addr1(id_rs1_addr_out),
-        .read_data1(id_read_data1_out),
-        .read_addr2(id_rs2_addr_out),
-        .read_data2(id_read_data2_out),
-        .write_addr(wb_write_addr_in),
-        .write_data(wb_write_data_in),
-        .write_enable(wb_reg_write_en_in)
+        .Branch(id_branch_out),
+        .Jump(id_jump_out),
+        .WriteFromPC(id_write_from_pc_out)
     );
 
     imm_gen ig (
@@ -85,13 +82,8 @@ module ins_decode (
         .immediate(id_immediate_out)
     );
 
-    assign id_pc_plus_4_out = id_pc_plus_4_in;
-    assign id_pc_out        = id_pc_in;
-    assign id_instruction_out = id_instruction_in;
-
 endmodule
 
-// RV32I control signal decoder for Omni-RISC.
 module control_unit(
     input  wire [6:0] opcode,
     input  wire [2:0] funct3,
@@ -101,12 +93,11 @@ module control_unit(
     output reg        MemRead,
     output reg        MemWrite,
     output reg        ALUSrc,
-    output reg        Branch,
     output reg [3:0]  ALUCtrl,
-    output reg        WriteFromPC,
-    output reg        Jump
+    output reg        Branch,
+    output reg        Jump,
+    output reg        WriteFromPC
 );
-
     always @(*) begin
         RegWrite     = 0;
         MemToReg     = 0;
@@ -188,10 +179,6 @@ module control_unit(
             end
             default: ;
         endcase
-        
-        if (opcode == 7'b1101111) begin
-            $display("DECODE JAL: Opcode=0x%h, Jump=%b", opcode, Jump);
-        end
     end
 endmodule
 
@@ -199,21 +186,24 @@ module reg_file (
     input  wire        clk,
     input  wire        rst,
     input  wire [4:0]  read_addr1,
-    output wire [31:0] read_data1,
     input  wire [4:0]  read_addr2,
-    output wire [31:0] read_data2,
     input  wire [4:0]  write_addr,
     input  wire [31:0] write_data,
-    input  wire        write_enable
+    input  wire        write_en,
+    output wire [31:0] read_data1,
+    output wire [31:0] read_data2
 );
-    integer i;
-    reg [31:0] registers [0:31];
+    reg [31:0] registers [31:0];
+
     assign read_data1 = (read_addr1 == 5'b0) ? 32'b0 : registers[read_addr1];
     assign read_data2 = (read_addr2 == 5'b0) ? 32'b0 : registers[read_addr2];
+
+    integer i;
     always @(posedge clk or posedge rst) begin
-       if(rst)begin
-            for (i = 0; i < 32; i = i + 1) registers[i] <= 32'b0;
-        end else if (write_enable && (write_addr != 5'b0)) begin
+        if (rst) begin
+            for (i = 0; i < 32; i = i + 1)
+                registers[i] <= 32'b0;
+        end else if (write_en && (write_addr != 5'b0)) begin
             registers[write_addr] <= write_data;
         end
     end
@@ -225,11 +215,15 @@ module imm_gen (
 );
     always @(*) begin
         case (instruction[6:0])
-            7'b0010011, 7'b0000011, 7'b1100111: immediate = {{20{instruction[31]}}, instruction[31:20]};
-            7'b0100011: immediate = {{20{instruction[31]}}, instruction[31:25], instruction[11:7]};
-            7'b1100011: immediate = {{19{instruction[31]}}, instruction[31], instruction[7], instruction[30:25], instruction[11:8], 1'b0};
-            7'b0110111, 7'b0010111: immediate = {instruction[31:12], 12'b0};
-            7'b1101111: immediate = {{11{instruction[31]}}, instruction[31], instruction[19:12], instruction[20], instruction[30:21], 1'b0};
+            7'b0110011: immediate = 32'b0; // R-type
+            7'b0010011: immediate = {{20{instruction[31]}}, instruction[31:20]}; // I-type
+            7'b0000011: immediate = {{20{instruction[31]}}, instruction[31:20]}; // I-type (Load)
+            7'b1100111: immediate = {{20{instruction[31]}}, instruction[31:20]}; // I-type (JALR)
+            7'b0100011: immediate = {{20{instruction[31]}}, instruction[31:25], instruction[11:7]}; // S-type
+            7'b1100011: immediate = {{20{instruction[31]}}, instruction[7], instruction[30:25], instruction[11:8], 1'b0}; // B-type
+            7'b0110111: immediate = {instruction[31:12], 12'b0}; // U-type (LUI)
+            7'b0010111: immediate = {instruction[31:12], 12'b0}; // U-type (AUIPC)
+            7'b1101111: immediate = {{12{instruction[31]}}, instruction[19:12], instruction[20], instruction[30:21], 1'b0}; // J-type
             default: immediate = 32'b0;
         endcase
     end
@@ -243,7 +237,7 @@ module hazard_unit (
     output reg        pipeline_stall
 );
     always @(*) begin
-        if (ex_mem_read && ((ex_rd_addr == id_rs1_addr) || (ex_rd_addr == id_rs2_addr)))
+        if (ex_mem_read && (ex_rd_addr != 5'b0) && ((ex_rd_addr == id_rs1_addr) || (ex_rd_addr == id_rs2_addr)))
             pipeline_stall = 1'b1;
         else
             pipeline_stall = 1'b0;
@@ -254,6 +248,7 @@ module if_id_buffer (
     input  wire        clk,
     input  wire        rst,
     input  wire        pipeline_stall,
+    input  wire        fetch_stall,
     input  wire [31:0] if_instruction_in,
     input  wire [31:0] if_pc_plus_4_in,
     input  wire [31:0] if_pc_in,
@@ -266,7 +261,7 @@ module if_id_buffer (
             id_instruction_out <= 32'h00000013;
             id_pc_plus_4_out   <= 32'b0;
             id_pc_out          <= 32'b0;
-        end else if (!pipeline_stall) begin
+        end else if (!pipeline_stall && !fetch_stall) begin
             id_instruction_out <= if_instruction_in;
             id_pc_plus_4_out   <= if_pc_plus_4_in;
             id_pc_out          <= if_pc_in;

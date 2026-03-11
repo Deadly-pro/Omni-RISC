@@ -40,10 +40,10 @@ module soc_top (
         .ibus_ack_in(c0_ibus_ack),
         
         .dbus_addr_out(c0_dbus_addr),
-        .dbus_write_data_out(c0_dbus_wdata),
-        .dbus_read_en_out(c0_dbus_rd_en),
-        .dbus_write_en_out(c0_dbus_wr_en),
-        .dbus_read_data_in(c0_dbus_rdata),
+        .dbus_wdata_out(c0_dbus_wdata),
+        .dbus_rd_en_out(c0_dbus_rd_en),
+        .dbus_wr_en_out(c0_dbus_wr_en),
+        .dbus_rdata_in(c0_dbus_rdata),
         .dbus_ack_in(c0_dbus_ack)
     );
 
