@@ -4,18 +4,20 @@
 module ins_decode (
     input  wire        clk,
     input  wire        rst,
+    input  wire [1:0]  id_core_id_in,
     input  wire [31:0] id_instruction_in,
     input  wire [31:0] id_pc_plus_4_in,
-    input  wire [31:0] id_pc_in,
+    input  wire [31:0] id_pc_in[0:3],
     input  wire [4:0]  ex_rd_addr_in,
     input  wire        ex_mem_read_in,
     input  wire        ex_reg_write_in,
     input  wire [4:0]  wb_write_addr_in,
     input  wire [31:0] wb_write_data_in,
     input  wire        wb_reg_write_en_in,
+    input  wire [1:0]  wb_core_id_in,
     output wire        pipeline_stall_out,
     output wire [31:0] id_pc_plus_4_out,
-    output wire [31:0] id_pc_out,
+    output wire [31:0] id_pc_out[0:3],
     output wire [31:0] id_read_data1_out,
     output wire [31:0] id_read_data2_out,
     output wire [31:0] id_immediate_out,
@@ -31,12 +33,14 @@ module ins_decode (
     output wire        id_branch_out,
     output wire        id_jump_out,
     output wire [3:0]  id_alu_ctrl_out,
-    output wire        id_write_from_pc_out
+    output wire        id_write_from_pc_out,
+    output wire [1:0]  id_core_id_out
 );
 
     assign id_instruction_out = id_instruction_in;
     assign id_pc_plus_4_out   = id_pc_plus_4_in;
     assign id_pc_out          = id_pc_in;
+    assign id_core_id_out     = id_core_id_in;
 
     assign id_rs1_addr_out = id_instruction_in[19:15];
     assign id_rs2_addr_out = id_instruction_in[24:20];
@@ -53,6 +57,8 @@ module ins_decode (
     reg_file rf (
         .clk(clk),
         .rst(rst),
+        .read_core_id(id_core_id_in),
+        .write_core_id(wb_core_id_in),
         .read_addr1(id_rs1_addr_out),
         .read_addr2(id_rs2_addr_out),
         .write_addr(wb_write_addr_in),
@@ -185,6 +191,8 @@ endmodule
 module reg_file (
     input  wire        clk,
     input  wire        rst,
+    input  wire [1:0]  read_core_id,
+    input  wire [1:0]  write_core_id,
     input  wire [4:0]  read_addr1,
     input  wire [4:0]  read_addr2,
     input  wire [4:0]  write_addr,
@@ -193,18 +201,18 @@ module reg_file (
     output wire [31:0] read_data1,
     output wire [31:0] read_data2
 );
-    reg [31:0] registers [31:0];
+    reg [31:0] registers [0:127]; // for 4 threads each having 32 registers bank becomes 128 registers
 
-    assign read_data1 = (read_addr1 == 5'b0) ? 32'b0 : registers[read_addr1];
-    assign read_data2 = (read_addr2 == 5'b0) ? 32'b0 : registers[read_addr2];
+    assign read_data1 = (read_addr1 == 5'b0) ? 32'b0 : registers[{read_core_id,read_addr1}];
+    assign read_data2 = (read_addr2 == 5'b0) ? 32'b0 : registers[{read_core_id,read_addr2}];
 
     integer i;
     always @(posedge clk or posedge rst) begin
         if (rst) begin
-            for (i = 0; i < 32; i = i + 1)
-                registers[i] <= 32'b0;
+            for (i = 0; i < 128; i = i + 1)
+                registers[i] = 32'b0; // Use blocking assignment for array reset in Verilator
         end else if (write_en && (write_addr != 5'b0)) begin
-            registers[write_addr] <= write_data;
+            registers[{write_core_id,write_addr}] <= write_data;
         end
     end
 endmodule
@@ -247,24 +255,31 @@ endmodule
 module if_id_buffer (
     input  wire        clk,
     input  wire        rst,
+    input  wire [1:0]  core_id_in,
     input  wire        pipeline_stall,
     input  wire        fetch_stall,
     input  wire [31:0] if_instruction_in,
     input  wire [31:0] if_pc_plus_4_in,
-    input  wire [31:0] if_pc_in,
+    input  wire [31:0] if_pc_in[0:3],
     output reg  [31:0] id_instruction_out,
     output reg  [31:0] id_pc_plus_4_out,
-    output reg  [31:0] id_pc_out
+    output reg  [1:0]  id_core_id_out,
+    output reg  [31:0] id_pc_out[0:3]
 );
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             id_instruction_out <= 32'h00000013;
             id_pc_plus_4_out   <= 32'b0;
-            id_pc_out          <= 32'b0;
+            id_pc_out [0]         <= 32'b0;
+            id_pc_out [1]         <= 32'b0;
+            id_pc_out [2]         <= 32'b0;
+            id_pc_out [3]         <= 32'b0;
+            id_core_id_out        <= 2'b00;
         end else if (!pipeline_stall && !fetch_stall) begin
             id_instruction_out <= if_instruction_in;
             id_pc_plus_4_out   <= if_pc_plus_4_in;
             id_pc_out          <= if_pc_in;
+            id_core_id_out     <= core_id_in;
         end
     end
 endmodule

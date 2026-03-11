@@ -4,7 +4,7 @@
 module ins_fetch (
     input  wire        clk,
     input  wire        rst,
-
+    input  wire [1:0]  core_id_in,
     // Pipeline control
     input  wire        pipeline_stall_in,
     output wire        fetch_stall_out,
@@ -21,7 +21,8 @@ module ins_fetch (
 
     // Output to ID stage
     output wire [31:0] instruction_out,
-    output wire [31:0] pc_out_pass
+    output wire [31:0] pc_out_pass,
+    output wire [1:0]  core_id_out
 );
 
     assign pc_plus_4_out = pc_in + 32'd4;
@@ -35,6 +36,7 @@ module ins_fetch (
 
     assign instruction_out = (ibus_ack_in) ? ibus_data_in : 32'h00000013;
     assign pc_out_pass     = pc_in;
+    assign core_id_out     = core_id_in;
 
 endmodule
 
@@ -42,14 +44,21 @@ endmodule
 module prog_counter (
     input  wire        clk,
     input  wire        rst,
-    input  wire [31:0] pc_in,
-    output reg  [31:0] pc_out
+    input  wire [31:0] pc_in[0:3],
+    input  wire [1:0]  core_id,
+    output reg  [31:0] pc_out[0:3]
 );
     always @(posedge clk) begin
         if (rst) begin
-            pc_out <= 32'h8000_0000; // Reset to start of RAM
+            pc_out[0] <= 32'h8000_0000; // Reset to start of RAM
+            pc_out[1] <= 32'h8000_0000; // Reset to start of RAM
+            pc_out[2] <= 32'h8000_0000; // Reset to start of RAM
+            pc_out[3] <= 32'h8000_0000; // Reset to start of RAM
         end else begin
-            pc_out <= pc_in;
+            pc_out[0] <= pc_in[0];
+            pc_out[1] <= pc_in[1];
+            pc_out[2] <= pc_in[2];
+            pc_out[3] <= pc_in[3];
         end
     end
 endmodule

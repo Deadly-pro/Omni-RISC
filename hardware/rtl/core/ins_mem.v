@@ -10,6 +10,7 @@ module ins_mem (
     output wire        mem_stall_out,    // Stall caused by memory latency
     
     // Inputs from EX/MA buffer
+    input  wire [1:0]  ex_core_id_in,
     input  wire [31:0] alu_result_in,
     input  wire [31:0] rs2_data_in,
     input  wire [4:0]  rd_addr_in,
@@ -35,7 +36,8 @@ module ins_mem (
     output wire [31:0] pc_plus_4_out,
     output wire        reg_write_out,
     output wire        mem_to_reg_out,
-    output wire        write_from_pc_out
+    output wire        write_from_pc_out,
+    output wire [1:0]  ma_core_id_out
 );
 
     // Bus assignments
@@ -55,6 +57,7 @@ module ins_mem (
     assign reg_write_out      = reg_write_in;
     assign mem_to_reg_out     = mem_to_reg_in;
     assign write_from_pc_out  = write_from_pc_in;
+    assign ma_core_id_out     = ex_core_id_in;
 
 endmodule
 
@@ -63,6 +66,7 @@ module ex_ma_buffer (
     input  wire        rst,
     input  wire        en,
 
+    input  wire [1:0]  ex_core_id_in,
     input  wire [31:0] ex_pc_plus_4_in,
     input  wire [31:0] ex_alu_result_in,
     input  wire [31:0] ex_read_data2_in,
@@ -82,7 +86,8 @@ module ex_ma_buffer (
     output reg         ma_mem_write_out,
     output reg         ma_reg_write_out,
     output reg         ma_mem_to_reg_out,
-    output reg         ma_write_from_pc_out
+    output reg         ma_write_from_pc_out,
+    output reg  [1:0]  ma_core_id_out
 );
 
     always @(posedge clk or posedge rst) begin
@@ -96,6 +101,7 @@ module ex_ma_buffer (
             ma_reg_write_out    <= 1'b0;
             ma_mem_to_reg_out   <= 1'b0;
             ma_write_from_pc_out <= 1'b0;
+            ma_core_id_out      <= 2'b00;
         end else if (en) begin
             ma_pc_plus_4_out    <= ex_pc_plus_4_in;
             ma_alu_result_out   <= ex_alu_result_in;
@@ -106,6 +112,7 @@ module ex_ma_buffer (
             ma_reg_write_out    <= ex_reg_write_in;
             ma_mem_to_reg_out   <= ex_mem_to_reg_in;
             ma_write_from_pc_out <= ex_write_from_pc_in;
+            ma_core_id_out      <= ex_core_id_in;
         end
     end
 

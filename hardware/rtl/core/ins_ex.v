@@ -2,6 +2,7 @@
 `timescale 1ns / 1ps
 
 module ins_ex (
+    input  wire [1:0]  id_core_id_in,
     input  wire [31:0] id_pc_plus_4_in,
     input  wire [31:0] id_pc_in,
     input  wire [31:0] id_read_data1_in,
@@ -37,6 +38,7 @@ module ins_ex (
     output wire        ex_branch_taken_out,
     output wire [31:0] ex_branch_target_out,
     output wire        ex_write_from_pc_out,
+    output wire [1:0]  ex_core_id_out,
     output wire [1:0]  forward_a_out,
     output wire [1:0]  forward_b_out
 );
@@ -103,6 +105,7 @@ module ins_ex (
     assign ex_reg_write_out     = id_reg_write_in;
     assign ex_mem_to_reg_out    = id_mem_to_reg_in;
     assign ex_write_from_pc_out = id_write_from_pc_in;
+    assign ex_core_id_out       = id_core_id_in;
 
 endmodule
 
@@ -154,8 +157,9 @@ module id_ex_buffer (
     input  wire        rst,
     input  wire        en,
     input  wire        clr,
+    input  wire [1:0]  id_core_id_in,
     input  wire [31:0] id_pc_plus_4_in,
-    input  wire [31:0] id_pc_in,
+    input  wire [31:0] id_pc_in[0:3],
     input  wire [31:0] id_read_data1_in,
     input  wire [31:0] id_read_data2_in,
     input  wire [31:0] id_immediate_in,
@@ -173,7 +177,7 @@ module id_ex_buffer (
     input  wire [3:0]  id_alu_ctrl_in,
     input  wire        id_write_from_pc_in,
     output reg  [31:0] ex_pc_plus_4_out,
-    output reg  [31:0] ex_pc_out,
+    output reg  [31:0] ex_pc_out[0:3],
     output reg  [31:0] ex_read_data1_out,
     output reg  [31:0] ex_read_data2_out,
     output reg  [31:0] ex_immediate_out,
@@ -189,17 +193,27 @@ module id_ex_buffer (
     output reg         ex_branch_out,
     output reg         ex_jump_out,
     output reg  [3:0]  ex_alu_ctrl_out,
-    output reg         ex_write_from_pc_out
+    output reg         ex_write_from_pc_out,
+    output reg  [1:0]  ex_core_id_out
 );
     always @(posedge clk or posedge rst) begin
         if (rst || clr) begin
-            ex_pc_plus_4_out <= 32'b0; ex_pc_out <= 32'b0;
+            ex_pc_plus_4_out <= 32'b0;
+            ex_pc_out[0] <= 32'b0;
+            ex_pc_out[1] <= 32'b0;
+            ex_pc_out[2] <= 32'b0;
+            ex_pc_out[3] <= 32'b0;
             ex_instruction_out <= 32'h00000013;
             ex_mem_read_out <= 0; ex_mem_write_out <= 0; ex_reg_write_out <= 0;
             ex_mem_to_reg_out <= 0; ex_alu_src_out <= 0; ex_branch_out <= 0; ex_jump_out <= 0;
             ex_write_from_pc_out <= 0;
+            ex_core_id_out <= 2'b00;
         end else if (en) begin
-            ex_pc_plus_4_out <= id_pc_plus_4_in; ex_pc_out <= id_pc_in;
+            ex_pc_plus_4_out <= id_pc_plus_4_in;
+            ex_pc_out[0] <= id_pc_in[0];
+            ex_pc_out[1] <= id_pc_in[1];
+            ex_pc_out[2] <= id_pc_in[2];
+            ex_pc_out[3] <= id_pc_in[3];
             ex_read_data1_out <= id_read_data1_in; ex_read_data2_out <= id_read_data2_in;
             ex_immediate_out <= id_immediate_in; ex_rs1_addr_out <= id_rs1_addr_in;
             ex_rs2_addr_out <= id_rs2_addr_in; ex_rd_addr_out <= id_rd_addr_in;
@@ -208,6 +222,7 @@ module id_ex_buffer (
             ex_mem_to_reg_out <= id_mem_to_reg_in; ex_alu_src_out <= id_alu_src_in;
             ex_branch_out <= id_branch_in; ex_jump_out <= id_jump_in; ex_alu_ctrl_out <= id_alu_ctrl_in;
             ex_write_from_pc_out <= id_write_from_pc_in;
+            ex_core_id_out <= id_core_id_in;
         end
     end
 endmodule

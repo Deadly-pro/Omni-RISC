@@ -6,7 +6,7 @@
 module soc_top (
     input wire clk,
     input wire rst_n,
-    
+
     // External interfaces
     output wire uart_tx
 );
@@ -26,6 +26,21 @@ module soc_top (
     wire        c0_dbus_wr_en;
     wire [31:0] c0_dbus_rdata;
     wire        c0_dbus_ack;
+    wire        pipe_en_all_out;
+    // --- Thread Cycling (Barrel Processor) ---
+    reg [1:0] thread_cnt;
+    always @(posedge clk or posedge rst) begin
+        if (rst) thread_cnt <= 2'b00;
+        else  begin
+            if (pipe_en_all_out) thread_cnt <= thread_cnt + 1'b1;
+        end
+    end
+
+    always @(posedge clk) begin
+        if (!rst && c0_ibus_req) begin
+            $display("BUS: T%0d Req PC=0x%h Ack=%b Data=0x%h", thread_cnt, c0_ibus_addr, c0_ibus_ack, c0_ibus_data);
+        end
+    end
 
     // --- Core 0 (RV32IMACV) ---
     risc_core #(
@@ -33,18 +48,20 @@ module soc_top (
     ) core0 (
         .clk(clk),
         .rst(rst),
-        
+        .core_id(thread_cnt),
+
         .ibus_addr_out(c0_ibus_addr),
         .ibus_req_out(c0_ibus_req),
         .ibus_data_in(c0_ibus_data),
         .ibus_ack_in(c0_ibus_ack),
-        
+
         .dbus_addr_out(c0_dbus_addr),
         .dbus_wdata_out(c0_dbus_wdata),
         .dbus_rd_en_out(c0_dbus_rd_en),
         .dbus_wr_en_out(c0_dbus_wr_en),
         .dbus_rdata_in(c0_dbus_rdata),
-        .dbus_ack_in(c0_dbus_ack)
+        .dbus_ack_in(c0_dbus_ack),
+        .pipe_en_all_out(pipe_en_all_out)
     );
 
     // --- Bus Interconnect ---
@@ -57,26 +74,26 @@ module soc_top (
     bus_interconnect arbiter (
         .clk(clk),
         .rst(rst),
-        
+
         .c0_ibus_addr(c0_ibus_addr),
         .c0_ibus_req(c0_ibus_req),
         .c0_ibus_data(c0_ibus_data),
         .c0_ibus_ack(c0_ibus_ack),
-        
+
         .c0_dbus_addr(c0_dbus_addr),
         .c0_dbus_wdata(c0_dbus_wdata),
         .c0_dbus_rd_en(c0_dbus_rd_en),
         .c0_dbus_wr_en(c0_dbus_wr_en),
         .c0_dbus_rdata(c0_dbus_rdata),
         .c0_dbus_ack(c0_dbus_ack),
-        
+
         .ram_addr(ram_addr),
         .ram_wdata(ram_wdata),
         .ram_rd_en(ram_rd_en),
         .ram_wr_en(ram_wr_en),
         .ram_rdata(ram_rdata),
         .ram_ack(ram_ack),
-        
+
         .uart_addr(uart_addr),
         .uart_wdata(uart_wdata),
         .uart_rd_en(uart_rd_en),
