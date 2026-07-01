@@ -1,2 +1,48 @@
-obj_dir/*
-*.md
+# Build artifacts
+obj_dir/
+*.o
+*.elf
+*.bin
+
+# Simulation outputs
+*.vcd
+*.fst
+*.log
+
+# Vivado
+hardware/vivado/reports/*.rpt
+*.bit
+*.ltx
+*.xpr
+*.jou
+.Xil/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Model checkpoints and data (large files)
+model/vfi/checkpoints/*.pth
+model/vfi/checkpoints/*.onnx
+model/vfi/checkpoints/*.engine
+model/vfi/calibration/*.png
+model/vfi/calibration/*.jpg
+model/upscale/checkpoints/*.pth
+model/upscale/checkpoints/*.onnx
+model/upscale/checkpoints/*.engine
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
+.idea/

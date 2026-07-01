@@ -1,51 +1,44 @@
-# Omni-RISC Project Makefile
+# Omni-RISC APU — Top-Level Makefile
+# Usage:
+#   make sim TB=cpu/tb_alu        — Run a single testbench
+#   make compliance               — Run RISC-V compliance tests
+#   make firmware                 — Cross-compile all firmware
+#   make synth                    — Run Vivado synthesis
+#   make clean                    — Remove build artifacts
 
-# Toolchain settings
-# Check for available toolchains: riscv64-linux-gnu- (Debian/Ubuntu) or riscv64-unknown-linux-gnu- (Buildroot/Generic)
-ifeq ($(shell which riscv64-linux-gnu-as >/dev/null 2>&1; echo $$?),0)
-    CROSS_COMPILE ?= riscv64-linux-gnu-
-else
-    CROSS_COMPILE ?= riscv64-unknown-linux-gnu-
+.PHONY: sim compliance firmware synth clean help
+
+SHELL := /bin/bash
+SIM_DIR := hardware/sim
+FW_DIR  := firmware
+VIVADO  := hardware/vivado
+
+help:
+	@echo "Omni-RISC APU Build System"
+	@echo ""
+	@echo "  make sim TB=cpu/tb_alu    Run a Verilator testbench"
+	@echo "  make compliance           Run RISC-V compliance tests"
+	@echo "  make firmware             Cross-compile firmware"
+	@echo "  make synth                Run Vivado synthesis"
+	@echo "  make clean                Remove build artifacts"
+
+sim:
+ifndef TB
+	@echo "Error: specify testbench with TB=<path>, e.g., make sim TB=cpu/tb_alu"
+	@exit 1
 endif
+	@cd $(SIM_DIR) && bash run_sim.sh $(TB)
 
-AS      = $(CROSS_COMPILE)as
-LD      = $(CROSS_COMPILE)ld
-OBJCOPY = $(CROSS_COMPILE)objcopy
+compliance:
+	@cd tests && bash run_compliance.sh
 
-# Simulation settings
-VERILATOR = verilator
-VERILATOR_FLAGS = -Wall --trace -cc --exe --build -j --Wno-fatal
+firmware:
+	@$(MAKE) -C $(FW_DIR)
 
-# Paths
-RTL_DIR = hardware/rtl
-SIM_DIR = hardware/sim
-INC_DIRS = -I$(RTL_DIR) -I$(RTL_DIR)/core -I$(RTL_DIR)/bus -I$(RTL_DIR)/peripherals -I$(RTL_DIR)/mmu -I$(RTL_DIR)/vector
-
-# --- Software Build ---
-program.hex: software/test_uart.s
-	@echo "🛠 Building test software..."
-	$(AS) -march=rv32i -mabi=ilp32 -o software/test_uart.o software/test_uart.s
-	$(LD) -m elf32lriscv -Ttext 0x80000000 -o software/test_uart.elf software/test_uart.o
-	$(OBJCOPY) -O verilog --verilog-data-width 4 --change-addresses -0x80000000 software/test_uart.elf program.hex
-	@echo "✅ program.hex created."
-
-# --- Hardware Build (Verilator) ---
-sim_build: $(RTL_DIR)/soc_top.v $(SIM_DIR)/soc_tb.cpp
-	@echo "💎 Running Verilator..."
-	$(VERILATOR) $(VERILATOR_FLAGS) $(INC_DIRS) \
-		$(RTL_DIR)/soc_top.v \
-		$(RTL_DIR)/core/*.v \
-		$(RTL_DIR)/bus/*.v \
-		$(RTL_DIR)/peripherals/*.v \
-		--top-module soc_top \
-		$(SIM_DIR)/soc_tb.cpp
-	@echo "✅ Simulation binary created."
-
-# --- Execution ---
-run: program.hex sim_build
-	@echo "🚀 Starting Simulation..."
-	./obj_dir/Vsoc_top
-	@echo "🏁 Simulation finished."
+synth:
+	@cd $(VIVADO) && vivado -mode batch -source synth.tcl
 
 clean:
-	rm -rf obj_dir software/*.o software/*.elf *.hex *.vcd
+	rm -rf obj_dir/ *.vcd *.fst
+	rm -rf $(SIM_DIR)/obj_dir/
+	$(MAKE) -C $(FW_DIR) clean 2>/dev/null || true
