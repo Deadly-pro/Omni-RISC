@@ -1,8 +1,10 @@
 # Build artifacts
-obj_dir/
+obj_dir*/
 *.o
 *.elf
 *.bin
+#Docs
+CLAUDE.md
 
 # Simulation outputs
 *.vcd
@@ -46,3 +48,4 @@ Thumbs.db
 *~
 .vscode/
 .idea/
+resume.pdf

@@ -1,60 +1,59 @@
 # Omni-RISC APU
 
-A RISC-V Accelerated Processing Unit: 2-wide dual-issue out-of-order CPU + SIMT GPU accelerator on FPGA.
+A RISC-V Accelerated Processing Unit: RV32IM CPU + SIMT GPU on FPGA (Xilinx Artix-7 XC7A100T). Solo build.
 
 ## Architecture
 
-- **CPU**: RV32IM, 7-stage pipeline, dual-issue OoO (scoreboard-based), GShare branch predictor, 16-entry ROB
-- **GPU**: SIMT engine (4 warps × 4 lanes), INT8/16/32 ALU, scratchpad memory
+- **CPU**: RV32IM, 5-stage in-order pipeline (IF/ID/EX/MEM/WB), full forwarding + hazard detection, M-extension, M-mode CSRs + traps
+- **GPU**: SIMT engine (4 warps × 4 lanes), INT ALU, scratchpad memory, warp scheduler with latency hiding
 - **Bus**: AXI4-Lite interconnect (CPU ↔ peripherals ↔ GPU)
 - **Target**: Xilinx Artix-7 (XC7A100T)
 
 ## Project Structure
 
 ```
-hardware/rtl/cpu/     — RISC-V CPU core (pipeline, caches, CSRs)
-hardware/rtl/gpu/     — SIMT GPU accelerator
-hardware/rtl/bus/     — AXI4 interconnect
-hardware/rtl/soc/     — Top-level SoC integration
-hardware/sim/         — Verilator testbenches
-firmware/             — Bare-metal RISC-V firmware
-model/                — Python ML models (VFI, FSRCNN)
-scripts/              — Utility scripts (hex conversion, etc.)
-tests/                — Test infrastructure
-docs/                 — Architecture documentation
+hardware/rtl/cpu/     — RISC-V CPU core (5-stage pipeline, caches, CSRs)
+hardware/rtl/gpu/     — SIMT GPU (warp scheduler, exec lanes, scratchpad)
+hardware/rtl/bus/     — AXI4-Lite interconnect
+hardware/rtl/memory/  — instruction/data BRAM
+hardware/rtl/peripherals/ — UART, CLINT timer, GPIO
+hardware/rtl/soc/     — top-level SoC integration
+hardware/sim/         — Verilator testbenches + run_sim.sh driver
+firmware/             — bare-metal RISC-V firmware (boot, drivers, apps, GPU kernels)
+scripts/              — elf_to_hex.py (ELF → $readmemh)
+tests/                — riscv-arch-test compliance runner, GPU kernel tests
+docs/                 — architecture and design docs (read cpu_design.md first)
 ```
 
 ## Build Phases
 
 | Phase | What | Status |
 |-------|------|--------|
-| 0 | Environment + Reading | 🔲 |
-| 1 | CPU Core (Layer 0→5: scalar → OoO) | 🔲 |
-| 2 | SoC (Bus, UART, Timer, Caches) | 🔲 |
-| 3 | GPU Core (SIMT Engine) | 🔲 |
-| 4 | GPU Maturation (Kernels, DMA) | 🔲 |
-| 5 | VFI Inference Workload | 🔲 |
+| 1 | CPU core: pipeline → hazards → M-ext → CSRs/traps → compliance | 🔨 in progress |
+| 2 | SoC: AXI-Lite bus, UART, CLINT — boot hello.c | 🔲 |
+| 3 | L1 caches | 🔲 |
+| 4 | GPU: SIMT engine, kernels, benchmarks | 🔲 |
+| 5 | FPGA synthesis + timing closure on Artix-7 | 🔲 |
 
 ## Quick Start
 
 ```bash
-# Run a testbench
-cd hardware/sim
-./run_sim.sh cpu/tb_alu
+# Run a single testbench
+make sim TB=cpu/tb_alu
+# or directly, with waveforms:
+./hardware/sim/run_sim.sh cpu/tb_alu --wave
 
 # Cross-compile firmware
-cd firmware
-make
+make firmware              # default APP=hello
 
-# Run compliance tests
-cd tests
-./run_compliance.sh
+# RISC-V compliance suite (needs CPU top sim built first)
+make compliance
 ```
 
 ## Requirements
 
 - Verilator >= 5.0
 - riscv32-unknown-elf-gcc
-- Python 3.11 + PyTorch 2.x
-- Vivado 2023.x (for FPGA synthesis)
-- GTKWave (waveform viewing)
+- GTKWave (waveforms)
+- Vivado 2023.x (synthesis only)
+- Python 3.11 (`pip install -r requirements.txt`)
