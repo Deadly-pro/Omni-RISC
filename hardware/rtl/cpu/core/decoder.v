@@ -176,6 +176,5 @@ always @(*)begin
     default:illegal_instr=1;
     endcase
 end
-
 imm_gen imm1(.instruction(instruction),.imm_type(imm_type),.immediate(immediate));
 endmodule
