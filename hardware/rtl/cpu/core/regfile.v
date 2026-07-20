@@ -40,7 +40,7 @@ module regfile(
   output [31:0] rs1_data,       // combinational (async) read
   output [31:0] rs2_data       // combinational (async) read
 );
-reg [31:0] reg_file[0:31]; //32 registers of 32 bit data
+reg [31:0] reg_file[0:31]/* verilator public */; //32 registers of 32 bit data
 integer i;
 always @(posedge clk) begin
     reg_file[0]<=32'b0;
@@ -56,6 +56,6 @@ always @(posedge clk) begin
         end
     end
 end
-assign rs1_data=reg_file[rs1_addr];
-assign rs2_data=reg_file[rs2_addr];
+assign rs1_data=(rs1_addr==0)?32'h0000_0000:(rd_write_en && (rs1_addr==rd_addr)?rd_data:reg_file[rs1_addr]);
+assign rs2_data=(rs2_addr==0)?32'h0000_0000:(rd_write_en && (rs2_addr==rd_addr)?rd_data:reg_file[rs2_addr]);
 endmodule
