@@ -71,13 +71,6 @@ static void clear_inputs(Vfetch_stage* dut) {
     dut->trap_target     = 0;
 }
 
-static void do_reset(Vfetch_stage* dut, VerilatedVcdC* tfp) {
-    clear_inputs(dut);
-    dut->reset = 1;
-    for (int i = 0; i < 2; i++) tick(dut, tfp);
-    dut->reset = 0;
-}
-
 // ---------------------------------------------------------------------------
 // Test result tracking
 // ---------------------------------------------------------------------------

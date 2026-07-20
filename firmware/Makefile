@@ -1,7 +1,8 @@
 # Omni-RISC APU — Firmware Makefile
 # Cross-compiles bare-metal RISC-V firmware
 
-PREFIX  := riscv32-unknown-elf-
+# Override with make PREFIX=... if your toolchain uses a different triple
+PREFIX  ?= riscv-none-elf-
 CC      := $(PREFIX)gcc
 AS      := $(PREFIX)as
 LD      := $(PREFIX)ld

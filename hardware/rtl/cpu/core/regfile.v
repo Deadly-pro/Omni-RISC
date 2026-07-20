@@ -41,7 +41,7 @@ module regfile(
   output [31:0] rs2_data       // combinational (async) read
 );
 reg [31:0] reg_file[0:31]; //32 registers of 32 bit data
-integer i=0;
+integer i;
 always @(posedge clk) begin
     reg_file[0]<=32'b0;
     if (rd_write_en)begin
