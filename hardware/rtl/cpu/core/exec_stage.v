@@ -39,7 +39,8 @@ module exec_stage (
      output reg        ex_mem_jump,         // tells WB to write pc_plus4, not alu_result
      output reg        ex_mem_reg_write,
      output reg        ex_mem_mem_read,
-     output reg        ex_mem_mem_write
+     output reg        ex_mem_mem_write,
+     output reg        div_stall
  );
 
 reg [31:0] operand_a,operand_b,result;
@@ -87,6 +88,14 @@ wire [31:0] mul_result;
 wire is_mul = id_ex_is_mul_div & ~id_ex_funct3[2];
 assign redirect_valid=take_branch;
 assign redirect_target=result&~32'h1;
+wire [31:0] div_result;  wire div_busy, div_done;
+wire is_div    = id_ex_is_mul_div & id_ex_funct3[2];
+wire div_start = is_div & ~div_busy & ~div_done;
+divider div1(.clk(clk), .reset(reset), .start(div_start),
+             .operand_a(fwd_rs1_data), .operand_b(fwd_rs2_data),
+             .funct3(id_ex_funct3), .result(div_result),
+             .busy(div_busy), .done(div_done));
+assign div_stall = is_div & ~div_done;
 always @(posedge clk) begin
     if(reset)begin
      ex_mem_alu_result<=0;
@@ -99,8 +108,11 @@ always @(posedge clk) begin
      ex_mem_mem_read<=0;
      ex_mem_mem_write<=0;
     end
+    else if (is_div & ~div_done) begin
+    ex_mem_reg_write <= 0; ex_mem_mem_read <= 0; ex_mem_mem_write <= 0;
+    end
     else if(!stall)begin
-        ex_mem_alu_result <= is_mul ? mul_result : result;
+        ex_mem_alu_result <= is_div ? div_result : (is_mul ? mul_result : result);
         ex_mem_store_data<=fwd_rs2_data;
         ex_mem_rd<=id_ex_rd;
         ex_mem_funct3<=id_ex_funct3;

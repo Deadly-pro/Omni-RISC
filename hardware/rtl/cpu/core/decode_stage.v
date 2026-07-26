@@ -6,7 +6,7 @@ module decode_stage (
     input         reset,
     input         stall,             // hold ID/EX (hazard unit, later — tie 0 in cpu_top for now)
     input         flush,             // EX took a branch → bubble this instruction
-
+    input         hold,
     // ---- IF/ID bundle in (from fetch_stage) ----
     input  [31:0] if_id_pc,
     input  [31:0] if_id_pc_plus4,
@@ -77,6 +77,9 @@ always @(posedge clk)begin
         id_ex_rs2_data<=0;
         id_ex_funct3<=0;
         id_ex_is_mul_div<=0;
+    end
+    else if (hold)begin
+        // do nothing ???
     end
     else begin
         id_ex_pc<=if_id_pc;

@@ -13,7 +13,7 @@ wire [31:0] redirect_target,if_id_pc,if_id_pc_plus4,if_id_instr;
 fetch_stage u_fetch(
     .clk(clk),
     .reset(reset),
-    .stall(stall),
+    .stall(freeze),
     .redirect_valid(redirect_valid),
     .redirect_target(redirect_target),
     .trap_valid(trap_valid),
@@ -34,11 +34,13 @@ wire [3:0]  id_ex_alu_op;
 wire [1:0]  id_ex_op_type;
 wire [2:0]  id_ex_funct3;
 wire id_ex_branch,id_ex_jump,id_ex_reg_write,id_ex_mem_read,id_ex_mem_write;
-
+wire div_stall;                    
+wire freeze = stall | div_stall;
 decode_stage u_decode(
     .clk(clk),
     .reset(reset),
-    .stall(stall),
+    .stall(stall), 
+    .hold(div_stall),
     .flush(flush),
     .if_id_pc(if_id_pc),
     .if_id_pc_plus4(if_id_pc_plus4),
@@ -83,6 +85,7 @@ exec_stage u_exec(
     .clk(clk),
     .reset(reset),
     .stall(1'b0), // step-8: EX gains real stall on M-ext (div busy) — see roadmap
+    .div_stall(div_stall),
     .id_ex_pc(id_ex_pc),
     .id_ex_pc_plus4(id_ex_pc_plus4),
     .id_ex_rs1_data(id_ex_rs1_data),

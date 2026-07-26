@@ -26,7 +26,7 @@ module divider (
     wire is_signed = ~funct3[0]; 
     wire a_neg     = is_signed & operand_a[31];
     wire b_neg     = is_signed & operand_b[31];
-    
+    reg [31:0] b_mag_reg;
     wire [31:0] a_mag = a_neg ? (~operand_a + 1) : operand_a;
     wire [31:0] b_mag = b_neg ? (~operand_b + 1) : operand_b;
 
@@ -79,6 +79,7 @@ module divider (
                             divd  <= a_pre_shifted;
                             count <= active_bits;
                             state <= DIVIDE;
+                            b_mag_reg <= b_mag;
                         end
                     end
                 end
@@ -86,8 +87,8 @@ module divider (
                 DIVIDE: begin
                     if (count > 0) begin
                         // 33-bit compare AND subtract (prevents underflow)
-                        if ( {rem[31:0], divd[31]} >= {1'b0, b_mag} ) begin
-                            rem <= {rem[31:0], divd[31]} - {1'b0, b_mag};
+                        if ( {rem[31:0], divd[31]} >= {1'b0, b_mag_reg} ) begin
+                            rem <= {rem[31:0], divd[31]} - {1'b0, b_mag_reg};
                             quo <= {quo[30:0], 1'b1};
                         end else begin
                             rem <= {rem[31:0], divd[31]};

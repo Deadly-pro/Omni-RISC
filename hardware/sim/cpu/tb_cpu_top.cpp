@@ -374,6 +374,89 @@ static void phase_mul() {
     check_reg(s, 14, 0x40000000, "MULH  ss: high(0x80000000^2) = 0x40000000");
 }
 
+// -----------------------------------------------------------------------------
+// PHASE 6 — M-extension divider through the live pipeline
+//   The divider is MULTI-CYCLE, so this phase proves what the single-cycle mul
+//   phase could not: (1) the div-busy freeze — fetch + decode hold while EX
+//   iterates, and the SAME div op persists in EX/EX the whole time (if the
+//   freeze released early, div's rd would be clobbered by div+4 and a garbage
+//   result latched); (2) all four ops (DIV/DIVU/REM/REMU) route via funct3 and
+//   the sign-magnitude wrapper (signed -20/3, unsigned 0xFFFFFFFF/2); (3) both
+//   RISC-V fast paths (divide-by-zero); (4) the div result forwards out the
+//   cycle after done (x8 = x7+1 back-to-back); (5) the divisor is read as a
+//   FORWARDED operand (x11: divisor x10 produced immediately before the div) —
+//   this specifically guards the input-latch: if the DIVIDE loop used the live
+//   b_mag instead of the latched b_mag_reg, the drained forwarding source would
+//   corrupt the divisor mid-iteration.
+// -----------------------------------------------------------------------------
+static void phase_div() {
+    uint32_t prog[64];
+    int i = 0;
+    prog[i++] = 0x06400093; // 0x00 addi x1,x0,100
+    prog[i++] = 0x00700113; // 0x04 addi x2,x0,7
+    prog[i++] = 0x00000013; // 0x08 nop
+    prog[i++] = 0x00000013; // 0x0C nop
+    prog[i++] = 0x0220C1B3; // 0x10 div  x3,x1,x2      -> 100/7  = 14
+    prog[i++] = 0x0220E233; // 0x14 rem  x4,x1,x2      -> 100%7  = 2
+    prog[i++] = 0x00000013; // 0x18 nop
+    prog[i++] = 0x00000013; // 0x1C nop
+    prog[i++] = 0x03200293; // 0x20 addi x5,x0,50
+    prog[i++] = 0x00500313; // 0x24 addi x6,x0,5
+    prog[i++] = 0x00000013; // 0x28 nop
+    prog[i++] = 0x00000013; // 0x2C nop
+    prog[i++] = 0x0262C3B3; // 0x30 div  x7,x5,x6      -> 50/5   = 10
+    prog[i++] = 0x00138413; // 0x34 addi x8,x7,1       back-to-back: fwd DIV result -> 11
+    prog[i++] = 0x00000013; // 0x38 nop
+    prog[i++] = 0x00000013; // 0x3C nop
+    prog[i++] = 0x05400493; // 0x40 addi x9,x0,84
+    prog[i++] = 0x00600513; // 0x44 addi x10,x0,6      divisor produced right before div
+    prog[i++] = 0x02A4C5B3; // 0x48 div  x11,x9,x10    FORWARDED divisor -> 84/6 = 14
+    prog[i++] = 0x00000013; // 0x4C nop
+    prog[i++] = 0x00000013; // 0x50 nop
+    prog[i++] = 0xFEC00613; // 0x54 addi x12,x0,-20
+    prog[i++] = 0x00300693; // 0x58 addi x13,x0,3
+    prog[i++] = 0x00000013; // 0x5C nop
+    prog[i++] = 0x00000013; // 0x60 nop
+    prog[i++] = 0x02D64733; // 0x64 div  x14,x12,x13   -> -20/3 = -6  (0xFFFFFFFA)
+    prog[i++] = 0x02D667B3; // 0x68 rem  x15,x12,x13   -> -20%3 = -2  (0xFFFFFFFE)
+    prog[i++] = 0x00000013; // 0x6C nop
+    prog[i++] = 0x00000013; // 0x70 nop
+    prog[i++] = 0xFFF00A13; // 0x74 addi x20,x0,-1     0xFFFFFFFF
+    prog[i++] = 0x00200A93; // 0x78 addi x21,x0,2
+    prog[i++] = 0x00000013; // 0x7C nop
+    prog[i++] = 0x00000013; // 0x80 nop
+    prog[i++] = 0x035A5B33; // 0x84 divu x22,x20,x21   -> 0xFFFFFFFF/2 = 0x7FFFFFFF
+    prog[i++] = 0x035A7BB3; // 0x88 remu x23,x20,x21   -> 0xFFFFFFFF%2 = 1
+    prog[i++] = 0x00000013; // 0x8C nop
+    prog[i++] = 0x00000013; // 0x90 nop
+    prog[i++] = 0x02A00813; // 0x94 addi x16,x0,42
+    prog[i++] = 0x000008B3; // 0x98 add  x17,x0,x0     x17 = 0 (divisor)
+    prog[i++] = 0x00000013; // 0x9C nop
+    prog[i++] = 0x00000013; // 0xA0 nop
+    prog[i++] = 0x03184933; // 0xA4 div  x18,x16,x17   /0 fast path -> 0xFFFFFFFF
+    prog[i++] = 0x031869B3; // 0xA8 rem  x19,x16,x17   /0 fast path -> dividend = 42
+    prog[i++] = 0x00000013; // 0xAC nop
+    prog[i++] = 0x00000013; // 0xB0 nop
+    prog[i++] = 0x0000006F; // 0xB4 j halt
+    write_hex(prog, i);
+
+    Sim s("tb_cpu_top_div.vcd");
+    s.run(3, 800);
+
+    printf("\n--- PHASE 6: M-extension divider ---\n");
+    check_reg(s,  3, 0x0000000E, "DIV  x3 = 100/7 = 14");
+    check_reg(s,  4, 0x00000002, "REM  x4 = 100%%7 = 2");
+    check_reg(s,  7, 0x0000000A, "DIV  x7 = 50/5 = 10");
+    check_reg(s,  8, 0x0000000B, "DIV result forwards: x8 = x7+1 = 11");
+    check_reg(s, 11, 0x0000000E, "DIV reads FORWARDED divisor: x11 = 84/6 = 14");
+    check_reg(s, 14, 0xFFFFFFFA, "DIV  signed: -20/3 trunc-toward-0 = -6");
+    check_reg(s, 15, 0xFFFFFFFE, "REM  signed: -20%%3 takes dividend sign = -2");
+    check_reg(s, 22, 0x7FFFFFFF, "DIVU x22 = 0xFFFFFFFF/2 = 0x7FFFFFFF");
+    check_reg(s, 23, 0x00000001, "REMU x23 = 0xFFFFFFFF%%2 = 1");
+    check_reg(s, 18, 0xFFFFFFFF, "DIV  /0 fast path: x18 = all-ones");
+    check_reg(s, 19, 0x0000002A, "REM  /0 fast path: x19 = dividend = 42");
+}
+
 int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
 
@@ -382,6 +465,7 @@ int main(int argc, char** argv) {
     phase_forward();
     phase_lduse();
     phase_mul();
+    phase_div();
 
     printf("\n%d/%d checks passed\n", checks - fails, checks);
     if (fails) { printf("TB RESULT: FAIL\n"); return 1; }
