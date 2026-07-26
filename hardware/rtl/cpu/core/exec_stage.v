@@ -19,8 +19,14 @@ module exec_stage (
      input         id_ex_reg_write,
      input         id_ex_mem_read,
      input         id_ex_mem_write,
-
-     // ---- Redirect out — COMBINATIONAL, loops back to fetch + decode.flush ----
+     input         id_ex_is_mul_div,    
+     // ---- forwarding inputs ----
+     input  [4:0]  id_ex_rs1_addr,     // NEW — match key
+     input  [4:0]  id_ex_rs2_addr,     // NEW — match key
+     input  [4:0]  mem_wb_rd,          // NEW — distance-2 producer id
+     input         mem_wb_reg_write,   // NEW — distance-2 producer writes?
+     input  [31:0] wb_rd_data,         // NEW — distance-2 forward value (from wb_stage)
+        // ---- Redirect out — COMBINATIONAL, loops back to fetch + decode.flush ----
      output        redirect_valid,
      output [31:0] redirect_target,
 
@@ -38,8 +44,24 @@ module exec_stage (
 
 reg [31:0] operand_a,operand_b,result;
 reg zero_flag,take_branch;
-assign operand_a=(id_ex_alu_op==11 ||id_ex_branch||(id_ex_jump && id_ex_op_type==0))?id_ex_pc:id_ex_rs1_data;
-assign operand_b=(id_ex_op_type==0 && !id_ex_jump)?id_ex_rs2_data:id_ex_imm;
+wire [31:0] fwd_rs1_data, fwd_rs2_data;
+wire [31:0] ex_mem_fwd_value = ex_mem_jump ? ex_mem_pc_plus4 : ex_mem_alu_result;
+forwarding_net fwd1(
+      .id_ex_rs1_addr(id_ex_rs1_addr),
+      .id_ex_rs2_addr(id_ex_rs2_addr),
+      .id_ex_rs1_data(id_ex_rs1_data),
+      .id_ex_rs2_data(id_ex_rs2_data),
+      .ex_mem_reg_write(ex_mem_reg_write),
+      .ex_mem_fwd_value(ex_mem_fwd_value),
+      .ex_mem_rd(ex_mem_rd),
+      .mem_wb_reg_write(mem_wb_reg_write),
+      .mem_wb_fwd_value(wb_rd_data),
+      .mem_wb_rd(mem_wb_rd),
+      .fwd_rs1_data(fwd_rs1_data),
+      .fwd_rs2_data(fwd_rs2_data)
+  );
+assign operand_a=(id_ex_alu_op==11 ||id_ex_branch||(id_ex_jump && id_ex_op_type==0))?id_ex_pc:fwd_rs1_data;
+assign operand_b=(id_ex_op_type==0 && !id_ex_jump&& id_ex_alu_op!=10 && id_ex_alu_op!=11)?fwd_rs2_data:id_ex_imm;
 alu alu1(
 .operand_a(operand_a),
 .operand_b(operand_b),
@@ -48,13 +70,21 @@ alu alu1(
 .zero_flag(zero_flag)
 );
 branch_unit branch_unit1(
-.rs1_data(id_ex_rs1_data),
-.rs2_data(id_ex_rs2_data),
+.rs1_data(fwd_rs1_data),
+.rs2_data(fwd_rs2_data),
 .funct3(id_ex_funct3),
 .is_branch(id_ex_branch),
 .is_jump(id_ex_jump),
 .take_branch(take_branch)
 );
+wire [31:0] mul_result;
+  multiplier mul1(
+    .operand_a(fwd_rs1_data),   // forwarded — NOT operand_a
+    .operand_b(fwd_rs2_data),   // forwarded — NOT operand_b
+    .funct3(id_ex_funct3),
+    .result(mul_result)
+  );
+wire is_mul = id_ex_is_mul_div & ~id_ex_funct3[2];
 assign redirect_valid=take_branch;
 assign redirect_target=result&~32'h1;
 always @(posedge clk) begin
@@ -70,8 +100,8 @@ always @(posedge clk) begin
      ex_mem_mem_write<=0;
     end
     else if(!stall)begin
-        ex_mem_alu_result<=result;
-        ex_mem_store_data<=id_ex_rs2_data;
+        ex_mem_alu_result <= is_mul ? mul_result : result;
+        ex_mem_store_data<=fwd_rs2_data;
         ex_mem_rd<=id_ex_rd;
         ex_mem_funct3<=id_ex_funct3;
         ex_mem_pc_plus4<=id_ex_pc_plus4;

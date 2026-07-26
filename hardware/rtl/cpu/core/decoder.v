@@ -31,16 +31,6 @@
 //   0010111 AUIPC         | 1101111 JAL          | 1100111 JALR
 //   1110011 SYSTEM (CSR/ecall/ebreak — flag only; csr_file/trap_unit handle it)
 //
-// GOTCHAS
-//   - ADD vs SUB vs SRA live in funct7 bit 5 (instr[30]) — applies to R-type
-//     AND to SRAI (I-type shifts use instr[30] too)
-//   - is_mul_div: opcode==R AND funct7==0000001; MUL/DIV/REM selected by funct3
-//   - illegal_instr must assert for garbage — tb checks it; later feeds
-//     trap_unit. Default ALL control signals to 0 when illegal
-//   - x0 as rd with reg_write=1 is fine — regfile ignores the write
-//
-// DONE WHEN: tb_decoder passes every RV32I + M instruction and flags
-//            illegal encodings.
 // =============================================================================
 module decoder(
   input  [31:0] instruction,

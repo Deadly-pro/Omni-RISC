@@ -18,15 +18,6 @@
 //   output [31:0] result
 //   output        zero_flag     // (result == 32'b0) — used by branch logic
 //
-// GOTCHAS
-//   - SLT: $signed(a) < $signed(b), result is 32'h1 or 32'h0
-//   - SLTU: plain unsigned <
-//   - SRA: $signed(operand_a) >>> shamt
-//   - Shift amount is operand_b[4:0] ONLY (RISC-V ignores upper bits)
-//   - Default case in the op mux — no latches
-//
-// DONE WHEN: tb_alu passes all cases (ADD overflow wrap, SUB underflow,
-//            SRA sign-fill, SLT vs SLTU disagreement on negative numbers).
 // =============================================================================
 module alu (
     input [31:0] operand_a,

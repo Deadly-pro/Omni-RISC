@@ -24,8 +24,8 @@ module decode_stage (
     output reg [31:0] id_ex_rs2_data,
     output reg [31:0] id_ex_imm,
     output reg [4:0]  id_ex_rd,
-    output reg [4:0]  id_ex_rs1_addr,   // for forwarding_net later
-    output reg [4:0]  id_ex_rs2_addr,   // for forwarding_net later
+    output reg [4:0]  id_ex_rs1_addr,   // for forwarding_net
+    output reg [4:0]  id_ex_rs2_addr,   // for forwarding_net
 
     // ---- ID/EX bundle out — control ----
     output reg [3:0]  id_ex_alu_op,
@@ -35,7 +35,8 @@ module decode_stage (
     output reg        id_ex_jump,
     output reg        id_ex_reg_write,
     output reg        id_ex_mem_read,
-    output reg        id_ex_mem_write
+    output reg        id_ex_mem_write,
+    output reg        id_ex_is_mul_div
 );
 reg [4:0] rs1,rs2,rd;
 reg [31:0] immediate,rs1_data,rs2_data;
@@ -63,7 +64,7 @@ regfile regfile1(
     .rs2_data(rs2_data)
 );
 always @(posedge clk)begin
-    if(reset||flush)begin
+    if(reset||stall||flush)begin
         id_ex_pc<=0;
         id_ex_pc_plus4<=0;
         id_ex_imm<=0;
@@ -75,8 +76,9 @@ always @(posedge clk)begin
         id_ex_rs1_data<=0;
         id_ex_rs2_data<=0;
         id_ex_funct3<=0;
+        id_ex_is_mul_div<=0;
     end
-    else if(!stall)begin
+    else begin
         id_ex_pc<=if_id_pc;
         id_ex_pc_plus4<=if_id_pc_plus4;
         id_ex_imm<=immediate;
@@ -93,6 +95,7 @@ always @(posedge clk)begin
         id_ex_rs1_data<=rs1_data;
         id_ex_rs2_data<=rs2_data;
         id_ex_funct3<=funct3;
+        id_ex_is_mul_div<=is_mul_div;
     end
 
 end
