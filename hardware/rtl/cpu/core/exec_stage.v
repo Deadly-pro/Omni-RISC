@@ -19,7 +19,8 @@ module exec_stage (
      input         id_ex_reg_write,
      input         id_ex_mem_read,
      input         id_ex_mem_write,
-     input         id_ex_is_mul_div,    
+     input         id_ex_is_mul_div,   
+     input         id_ex_is_csr, 
      // ---- forwarding inputs ----
      input  [4:0]  id_ex_rs1_addr,     // NEW — match key
      input  [4:0]  id_ex_rs2_addr,     // NEW — match key
@@ -40,7 +41,7 @@ module exec_stage (
      output reg        ex_mem_reg_write,
      output reg        ex_mem_mem_read,
      output reg        ex_mem_mem_write,
-     output reg        div_stall
+     output            div_stall
  );
 
 reg [31:0] operand_a,operand_b,result;
@@ -61,6 +62,7 @@ forwarding_net fwd1(
       .fwd_rs1_data(fwd_rs1_data),
       .fwd_rs2_data(fwd_rs2_data)
   );
+
 assign operand_a=(id_ex_alu_op==11 ||id_ex_branch||(id_ex_jump && id_ex_op_type==0))?id_ex_pc:fwd_rs1_data;
 assign operand_b=(id_ex_op_type==0 && !id_ex_jump&& id_ex_alu_op!=10 && id_ex_alu_op!=11)?fwd_rs2_data:id_ex_imm;
 alu alu1(
@@ -77,6 +79,28 @@ branch_unit branch_unit1(
 .is_branch(id_ex_branch),
 .is_jump(id_ex_jump),
 .take_branch(take_branch)
+);
+wire [31:0] csr_rdata;
+wire        csr_illegal;
+wire [31:0] csr_mtvec_o, csr_mepc_o, csr_mstatus_o;
+csr_file csr_file1(
+    .clk(clk),
+    .reset(reset),
+    .csr_addr(id_ex_imm[11:0]),
+    .csr_funct3(id_ex_funct3),
+    .csr_wdata(fwd_rs1_data),
+    .csr_uimm(id_ex_rs1_addr),
+    .csr_en(id_ex_is_csr),
+    .csr_rdata(csr_rdata),
+    .csr_illegal(csr_illegal),
+    .trap_taken(1'b0),
+    .trap_pc(32'b0),
+    .trap_cause(32'b0),
+    .trap_tval(32'b0),
+    .mret(1'b0),
+    .mtvec_o(csr_mtvec_o),
+    .mepc_o(csr_mepc_o),
+    .mstatus_o(csr_mstatus_o)
 );
 wire [31:0] mul_result;
   multiplier mul1(
@@ -112,7 +136,7 @@ always @(posedge clk) begin
     ex_mem_reg_write <= 0; ex_mem_mem_read <= 0; ex_mem_mem_write <= 0;
     end
     else if(!stall)begin
-        ex_mem_alu_result <= is_div ? div_result : (is_mul ? mul_result : result);
+        ex_mem_alu_result <= id_ex_is_csr ? csr_rdata : (is_div ? div_result : (is_mul ? mul_result : result));
         ex_mem_store_data<=fwd_rs2_data;
         ex_mem_rd<=id_ex_rd;
         ex_mem_funct3<=id_ex_funct3;

@@ -22,7 +22,8 @@
 //   9. x0 reads as zero even after a write attempt
 //  10. Flush bubbles a live instruction (control=0)
 //  11. Flush wins over stall
-//  12. Stall holds the PREVIOUS bundle while if_id changes underneath
+//  12. Stall bubbles ID/EX (load-use interlock inserts a NOP into EX),
+//      Hold preserves ID/EX (div-stall keeps the div resident in EX)
 // =============================================================================
 
 #include <cstdio>
@@ -64,6 +65,7 @@ static void tick(Vdecode_stage* dut, VerilatedVcdC* tfp) {
 
 static void clear_inputs(Vdecode_stage* dut) {
     dut->stall          = 0;
+    dut->hold           = 0;
     dut->flush          = 0;
     dut->if_id_pc       = 0;
     dut->if_id_pc_plus4 = 4;
@@ -265,19 +267,34 @@ int main(int argc, char** argv) {
     check_ctrl(dut, "flush+stall", 0, 0, 0, 0, 0);
 
     // =====================================================================
-    // TEST 12: Stall holds the bundle while if_id changes underneath
+    // TEST 12: Stall bubbles ID/EX (load-use interlock), Hold preserves it
+    //          (div-stall). The fetch stage freezes IF/ID, so ID/EX must
+    //          inject a NOP on stall and keep its bundle on hold.
     // =====================================================================
-    printf("\n--- Test 12: Stall hold ---\n");
+    printf("\n--- Test 12: Stall bubble vs Hold preserve ---\n");
     feed(dut, tfp, LW_X6_8_X1, 0x124);     // bundle now = lw
     dut->if_id_instr = SW_X2_12_X1;        // fetch moved on...
     dut->stall = 1;
     tick(dut, tfp);
-    check("held: rd = 6 (still lw)",   6, dut->id_ex_rd);
-    check("held: mem_read = 1",        1, dut->id_ex_mem_read);
-    check("held: mem_write = 0",       0, dut->id_ex_mem_write);
-    tick(dut, tfp);
-    check("held 2 cycles: rd = 6",     6, dut->id_ex_rd);
+    // Control-only bubble: the hazard must not let a bogus EX op escape,
+    // so reg_write/mem_read/mem_write drop to 0. rd/alu_op stay stale —
+    // invisible because reg_write=0 gates the writeback.
+    check("stall: mem_read bubbles to 0", 0, dut->id_ex_mem_read);
+    check("stall: mem_write bubbles to 0",0, dut->id_ex_mem_write);
+    check("stall: reg_write bubbles to 0",0, dut->id_ex_reg_write);
+    check("stall: rd stays stale (invisible)", 6, dut->id_ex_rd);
     dut->stall = 0;
+
+    feed(dut, tfp, LW_X6_8_X1, 0x124);     // re-arm bundle = lw
+    dut->if_id_instr = SW_X2_12_X1;        // fetch moved on...
+    dut->hold = 1;
+    tick(dut, tfp);
+    check("hold: rd = 6 (still lw)",   6, dut->id_ex_rd);
+    check("hold: mem_read = 1",        1, dut->id_ex_mem_read);
+    check("hold: mem_write = 0",       0, dut->id_ex_mem_write);
+    tick(dut, tfp);
+    check("hold 2 cycles: rd = 6",     6, dut->id_ex_rd);
+    dut->hold = 0;
     tick(dut, tfp);
     check("release: mem_write = 1 (sw)", 1, dut->id_ex_mem_write);
     check("release: reg_write = 0",      0, dut->id_ex_reg_write);

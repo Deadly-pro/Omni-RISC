@@ -33,7 +33,7 @@ wire id_ex_is_mul_div;
 wire [3:0]  id_ex_alu_op;
 wire [1:0]  id_ex_op_type;
 wire [2:0]  id_ex_funct3;
-wire id_ex_branch,id_ex_jump,id_ex_reg_write,id_ex_mem_read,id_ex_mem_write;
+wire id_ex_branch,id_ex_jump,id_ex_reg_write,id_ex_mem_read,id_ex_mem_write,id_ex_is_csr;
 wire div_stall;                    
 wire freeze = stall | div_stall;
 decode_stage u_decode(
@@ -64,7 +64,8 @@ decode_stage u_decode(
     .id_ex_reg_write(id_ex_reg_write),
     .id_ex_mem_read(id_ex_mem_read),
     .id_ex_mem_write(id_ex_mem_write),
-    .id_ex_is_mul_div(id_ex_is_mul_div)
+    .id_ex_is_mul_div(id_ex_is_mul_div),
+    .id_ex_is_csr(id_ex_is_csr)
 );
 wire [4:0] if_id_rs1 = if_id_instr[19:15];
 wire [4:0] if_id_rs2 = if_id_instr[24:20];
@@ -100,6 +101,7 @@ exec_stage u_exec(
     .id_ex_reg_write(id_ex_reg_write),
     .id_ex_mem_read(id_ex_mem_read),
     .id_ex_mem_write(id_ex_mem_write),
+    .id_ex_is_csr(id_ex_is_csr),
     .redirect_valid(redirect_valid),
     .redirect_target(redirect_target),
     .id_ex_rs1_addr(id_ex_rs1_addr),

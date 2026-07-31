@@ -46,7 +46,8 @@ module decoder(
   output reg jump,                // JAL / JALR
   output reg is_mul_div,          // R-type with funct7 == 7'b0000001 (M-ext)
   output reg [1:0] op_type,             // 0=R, 1=I, 2=S, 3=B (per tb_decoder.cpp)
-  output reg illegal_instr       // unrecognized opcode/funct combination
+  output reg illegal_instr,       // unrecognized opcode/funct combination
+  output reg is_csr
 );
 assign rs1=instruction[19:15];
 assign rs2=instruction[24:20];
@@ -65,6 +66,7 @@ always @(*)begin
     op_type=0;
     alu_op=0;
     is_mul_div=0;
+    is_csr=0;
     illegal_instr=0;
     case(instruction[6:0])
     7'b0110011:begin //R Type
@@ -160,7 +162,9 @@ always @(*)begin
         op_type=1;
     end
     7'b1110011:begin
-        if(funct3!=0) reg_write=1;
+        if(funct3!=0)begin reg_write=1;
+        is_csr=1;
+        end
         else reg_write=0;
     end
     default:illegal_instr=1;

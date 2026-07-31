@@ -26,7 +26,7 @@ module decode_stage (
     output reg [4:0]  id_ex_rd,
     output reg [4:0]  id_ex_rs1_addr,   // for forwarding_net
     output reg [4:0]  id_ex_rs2_addr,   // for forwarding_net
-
+    output reg        id_ex_is_csr,
     // ---- ID/EX bundle out — control ----
     output reg [3:0]  id_ex_alu_op,
     output reg [1:0]  id_ex_op_type,
@@ -42,7 +42,7 @@ reg [4:0] rs1,rs2,rd;
 reg [31:0] immediate,rs1_data,rs2_data;
 reg [2:0] funct3;
 reg [6:0] funct7;
-reg reg_write,mem_read,mem_write,branch,jump,is_mul_div,illegal_instr;
+reg reg_write,mem_read,mem_write,branch,jump,is_mul_div,illegal_instr,is_csr;
 reg [3:0] alu_op;
 reg [1:0] op_type;
 decoder decoder1(
@@ -52,7 +52,7 @@ decoder decoder1(
     .funct3(funct3),.funct7(funct7),
     .reg_write(reg_write),.mem_read(mem_read),
     .mem_write(mem_write),.branch(branch),.jump(jump),
-    .is_mul_div(is_mul_div),.op_type(op_type),.illegal_instr(illegal_instr)
+    .is_mul_div(is_mul_div),.op_type(op_type),.illegal_instr(illegal_instr),.is_csr(is_csr)
 );
 regfile regfile1(
     .clk(clk),
@@ -77,6 +77,7 @@ always @(posedge clk)begin
         id_ex_rs2_data<=0;
         id_ex_funct3<=0;
         id_ex_is_mul_div<=0;
+        id_ex_is_csr<=0;
     end
     else if (hold)begin
         // do nothing ???
@@ -99,6 +100,7 @@ always @(posedge clk)begin
         id_ex_rs2_data<=rs2_data;
         id_ex_funct3<=funct3;
         id_ex_is_mul_div<=is_mul_div;
+        id_ex_is_csr<=is_csr;
     end
 
 end

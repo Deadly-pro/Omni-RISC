@@ -457,6 +457,105 @@ static void phase_div() {
     check_reg(s, 19, 0x0000002A, "REM  /0 fast path: x19 = dividend = 42");
 }
 
+// -----------------------------------------------------------------------------
+// PHASE 7 — CSR instructions through the live pipeline
+//   Proves: (1) is_csr propagates decode->exec and gates csr_file
+//   (2) funct3[2] selects register vs immediate source (csr_wdata vs csr_uimm)
+//   (3) funct3[1:0] selects RW/RS/RC and write-skip on rs1=x0 (or uimm=0 for I variants)
+//   (4) result mux picks csr_rdata over ALU/mul/div results when id_ex_is_csr=1
+//   (5) forwarding feeds csr_wdata (fwd_rs1_data) correctly
+// -----------------------------------------------------------------------------
+static void phase_csr() {
+    uint32_t prog[128];
+    int i = 0;
+    // Setup: x2 = 0x105 (the bit mask used for SET/CLEAR on mtvec)
+    prog[i++] = 0x30501273; // 0x00 csrrw x1, mtvec, x0       x1=old mtvec(0), mtvec=0
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x10500113; // 0x14 addi x2, x0, 0x105        x2 = 0x105
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+
+    // Register variants on mtvec: set bits, then clear them
+    prog[i++] = 0x305121F3; // 0x24 csrrs x3, mtvec, x2       x3=old mtvec(0), mtvec|=0x105
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x30513273; // 0x34 csrrc x4, mtvec, x2       x4=old mtvec(0x105), mtvec&=~0x105=0
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+
+    // Immediate variants on mscratch
+    prog[i++] = 0x340AD2F3; // 0x50 csrrwi x5, mscratch, 0x15 x5=old mscratch(0), mscratch=0x15
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x34016373; // 0x60 csrrsi x6, mscratch, 2    x6=old mscratch(0x15), mscratch|=2=0x17
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x340273F3; // 0x70 csrrci x7, mscratch, 4    x7=old mscratch(0x17), mscratch&=~4=0x13
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+
+    // Re-arm mtvec to 0x105, then prove write-skip semantics
+    prog[i++] = 0x30511573; // 0x84 csrrw x10, mtvec, x2      x10=old mtvec(0), mtvec=0x105
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x305025F3; // 0x94 csrrs x11, mtvec, x0      x11=old mtvec(0x105), write SKIPPED
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x30503673; // 0xA4 csrrc x12, mtvec, x0      x12=old mtvec(0x105), write SKIPPED
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x305016F3; // 0xB4 csrrw x13, mtvec, x0      x13=old mtvec(0x105), writes 0
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x30502773; // 0xC4 csrrs x14, mtvec, x0      x14=old mtvec(0) — confirms mtvec=0
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+    prog[i++] = 0x00000013; // nop
+
+    prog[i++] = 0x0000006F; // j halt
+    write_hex(prog, i);
+
+    Sim s("tb_cpu_top_csr.vcd");
+    s.run(3, 200);
+
+    printf("\n--- PHASE 7: CSR instructions ---\n");
+    check_reg(s,  1, 0x00000000, "CSRRW x1=old mtvec(0), mtvec=0");
+    check_reg(s,  3, 0x00000000, "CSRRS x3=old mtvec(0), mtvec|=0x105");
+    check_reg(s,  4, 0x00000105, "CSRRC x4=old mtvec(0x105), mtvec&=~0x105=0");
+    check_reg(s,  5, 0x00000000, "CSRRWI x5=old mscratch(0), mscratch=0x15");
+    check_reg(s,  6, 0x00000015, "CSRRSI x6=old mscratch(0x15), mscratch|=2=0x17");
+    check_reg(s,  7, 0x00000017, "CSRRCI x7=old mscratch(0x17), mscratch&=~4=0x13");
+    check_reg(s, 10, 0x00000000, "CSRRW x10=old mtvec(0), mtvec re-armed to 0x105");
+    check_reg(s, 11, 0x00000105, "CSRRS rs1=x0: x11=old mtvec(0x105), write skipped");
+    check_reg(s, 12, 0x00000105, "CSRRC rs1=x0: x12=old mtvec(0x105), write skipped (x11 skipped too)");
+    check_reg(s, 13, 0x00000105, "CSRRW rs1=x0: x13=old mtvec(0x105), STILL wrote 0");
+    check_reg(s, 14, 0x00000000, "CSRRS x14=old mtvec(0) confirms csrrw wrote 0");
+}
+
 int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
 
@@ -466,6 +565,7 @@ int main(int argc, char** argv) {
     phase_lduse();
     phase_mul();
     phase_div();
+    phase_csr();
 
     printf("\n%d/%d checks passed\n", checks - fails, checks);
     if (fails) { printf("TB RESULT: FAIL\n"); return 1; }
