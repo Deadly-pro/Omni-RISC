@@ -5,8 +5,8 @@ module cpu_top (
       input reset
   );
 wire stall,bubble;
-wire trap_valid=1'b0;
-wire [31:0] trap_target=32'b0;
+wire trap_valid;
+wire [31:0] trap_target;
 wire redirect_valid;
 wire [31:0] redirect_target,if_id_pc,if_id_pc_plus4,if_id_instr;
 
@@ -22,7 +22,7 @@ fetch_stage u_fetch(
     .if_id_pc_plus4(if_id_pc_plus4),
     .if_id_instr(if_id_instr)
 );
-wire flush=redirect_valid; //for test run we let it be 0
+wire flush=redirect_valid | trap_valid;
 //loopback from wb stage
 wire [4:0] wb_rd_addr;
 wire [31:0] wb_rd_data;
@@ -34,7 +34,8 @@ wire [3:0]  id_ex_alu_op;
 wire [1:0]  id_ex_op_type;
 wire [2:0]  id_ex_funct3;
 wire id_ex_branch,id_ex_jump,id_ex_reg_write,id_ex_mem_read,id_ex_mem_write,id_ex_is_csr;
-wire div_stall;                    
+wire id_ex_is_ecall,id_ex_is_ebreak,id_ex_is_mret,id_ex_illegal;
+wire div_stall;
 wire freeze = stall | div_stall;
 decode_stage u_decode(
     .clk(clk),
@@ -65,7 +66,11 @@ decode_stage u_decode(
     .id_ex_mem_read(id_ex_mem_read),
     .id_ex_mem_write(id_ex_mem_write),
     .id_ex_is_mul_div(id_ex_is_mul_div),
-    .id_ex_is_csr(id_ex_is_csr)
+    .id_ex_is_csr(id_ex_is_csr),
+    .id_ex_is_ecall(id_ex_is_ecall),
+    .id_ex_is_ebreak(id_ex_is_ebreak),
+    .id_ex_is_mret(id_ex_is_mret),
+    .id_ex_illegal(id_ex_illegal)
 );
 wire [4:0] if_id_rs1 = if_id_instr[19:15];
 wire [4:0] if_id_rs2 = if_id_instr[24:20];
@@ -102,6 +107,10 @@ exec_stage u_exec(
     .id_ex_mem_read(id_ex_mem_read),
     .id_ex_mem_write(id_ex_mem_write),
     .id_ex_is_csr(id_ex_is_csr),
+    .id_ex_is_ecall(id_ex_is_ecall),
+    .id_ex_is_ebreak(id_ex_is_ebreak),
+    .id_ex_is_mret(id_ex_is_mret),
+    .id_ex_illegal(id_ex_illegal),
     .redirect_valid(redirect_valid),
     .redirect_target(redirect_target),
     .id_ex_rs1_addr(id_ex_rs1_addr),
@@ -118,7 +127,9 @@ exec_stage u_exec(
     .ex_mem_jump(ex_mem_jump),
     .ex_mem_reg_write(ex_mem_reg_write),
     .ex_mem_mem_read(ex_mem_mem_read),
-    .ex_mem_mem_write(ex_mem_mem_write)
+    .ex_mem_mem_write(ex_mem_mem_write),
+    .trap_valid(trap_valid),
+    .trap_target(trap_target)
 );
 wire [31:0] mem_wb_alu_result,mem_wb_rdata,mem_wb_pc_plus4;
 wire [4:0]  mem_wb_rd;

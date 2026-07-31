@@ -27,6 +27,8 @@
 #include "Vcpu_top_cpu_top.h"
 #include "Vcpu_top_decode_stage.h"
 #include "Vcpu_top_regfile.h"
+#include "Vcpu_top_mem_stage.h"
+#include "Vcpu_top_data_bram.h"
 #include "verilated.h"
 #include "verilated_vcd_c.h"
 
@@ -74,6 +76,10 @@ struct Sim {
         // root -> cpu_top -> u_decode -> regfile1 -> reg_file[idx]
         return dut->rootp->cpu_top->u_decode->regfile1->reg_file[idx];
     }
+    uint32_t mem(int idx) {
+        // root -> cpu_top -> u_mem -> u_dbram -> mem[idx]
+        return dut->rootp->cpu_top->u_mem->u_dbram->mem[idx];
+    }
 };
 
 static void write_hex(const uint32_t* prog, int n) {
@@ -92,6 +98,17 @@ static void check_reg(Sim& s, int idx, uint32_t expect, const char* why) {
         printf("FAIL  x%-2d = 0x%08X, expected 0x%08X  (%s)\n", idx, got, expect, why);
     } else {
         printf("pass  x%-2d = 0x%08X  (%s)\n", idx, got, why);
+    }
+}
+
+static void check_mem(Sim& s, int idx, uint32_t expect, const char* why) {
+    checks++;
+    uint32_t got = s.mem(idx);
+    if (got != expect) {
+        fails++;
+        printf("FAIL  mem[0x%03X] = 0x%08X, expected 0x%08X  (%s)\n", idx*4, got, expect, why);
+    } else {
+        printf("pass  mem[0x%03X] = 0x%08X  (%s)\n", idx*4, got, why);
     }
 }
 
@@ -556,6 +573,74 @@ static void phase_csr() {
     check_reg(s, 14, 0x00000000, "CSRRS x14=old mtvec(0) confirms csrrw wrote 0");
 }
 
+// -----------------------------------------------------------------------------
+// PHASE 8 — trap_unit through the live pipeline
+//   Assembled from /tmp/trap_test.S (riscv64-linux-gnu-as -march=rv32im_zicsr).
+//   Four synchronous traps: ecall, ebreak, illegal opcode, illegal CSR write.
+//   Each vectors to mtvec (a shared handler) which stores {mepc, mcause,
+//   mstatus} into slot [0x200 + trap*16] and advances mepc by 4 before mret.
+//   A trap count lives at 0x20C. Verifies: mtvec redirect, mepc capture,
+//   cause encoding (11/3/2/2), mstatus MIE push (armed MIE=1 -> handler sees
+//   MIE=0, MPIE=1, MPP=M), and that mret returns past the trapping instr.
+// -----------------------------------------------------------------------------
+static void phase_trap() {
+    uint32_t prog[64];
+    int i = 0;
+    prog[i++] = 0x00000297; // 0x00 auipc t0,0
+    prog[i++] = 0x03c28293; // 0x04 addi  t0,t0,60      t0 = &handler (0x3C)
+    prog[i++] = 0x30529073; // 0x08 csrw  mtvec,t0
+    prog[i++] = 0x00800313; // 0x0C li    t1,8
+    prog[i++] = 0x30032073; // 0x10 csrs  mstatus,t1    MIE = 1
+    prog[i++] = 0x11100393; // 0x14 li    t2,0x111
+    prog[i++] = 0x00000073; // 0x18 ecall               TRAP 0 -> cause 11
+    prog[i++] = 0x22200393; // 0x1C li    t2,0x222
+    prog[i++] = 0x00100073; // 0x20 ebreak              TRAP 1 -> cause 3
+    prog[i++] = 0x33300393; // 0x24 li    t2,0x333
+    prog[i++] = 0x0000007f; // 0x28 .word 0x7F          TRAP 2 -> illegal, cause 2
+    prog[i++] = 0x44400393; // 0x2C li    t2,0x444
+    prog[i++] = 0xf1139073; // 0x30 csrw  mvendorid,t2  TRAP 3 -> RO write, cause 2
+    prog[i++] = 0x55500393; // 0x34 li    t2,0x555
+    prog[i++] = 0x04c0006f; // 0x38 j     0x84 (done)
+    prog[i++] = 0x34102e73; // 0x3C handler: csrr t3,mepc
+    prog[i++] = 0x34202ef3; // 0x40 csrr t4,mcause
+    prog[i++] = 0x30002f73; // 0x44 csrr t5,mstatus
+    prog[i++] = 0x20000f93; // 0x48 li   t6,0x200
+    prog[i++] = 0x00cfaf83; // 0x4C lw   t6,12(t6)      count
+    prog[i++] = 0x004f9f93; // 0x50 slli t6,t6,4
+    prog[i++] = 0x20000293; // 0x54 li   t0,0x200
+    prog[i++] = 0x01f282b3; // 0x58 add  t0,t0,t6       slot
+    prog[i++] = 0x01c2a023; // 0x5C sw   t3,0(t0)
+    prog[i++] = 0x01d2a223; // 0x60 sw   t4,4(t0)
+    prog[i++] = 0x01e2a423; // 0x64 sw   t5,8(t0)
+    prog[i++] = 0x20000293; // 0x68 li   t0,0x200
+    prog[i++] = 0x00c2af83; // 0x6C lw   t6,12(t0)
+    prog[i++] = 0x001f8f93; // 0x70 addi t6,t6,1
+    prog[i++] = 0x01f2a623; // 0x74 sw   t6,12(t0)
+    prog[i++] = 0x004e0e13; // 0x78 addi t3,t3,4
+    prog[i++] = 0x341e1073; // 0x7C csrw mepc,t3
+    prog[i++] = 0x30200073; // 0x80 mret
+    prog[i++] = 0x0000006f; // 0x84 done: j done
+    write_hex(prog, i);
+
+    Sim s("tb_cpu_top_trap.vcd");
+    s.run(3, 400);
+
+    printf("\n--- PHASE 8: trap_unit (ecall/ebreak/illegal/mret) ---\n");
+    check_mem(s, 0x80, 0x00000018, "TRAP0 ecall:  mepc = pc of ecall (0x18)");
+    check_mem(s, 0x81, 0x0000000B, "TRAP0 ecall:  mcause = 11");
+    check_mem(s, 0x82, 0x00001880, "TRAP0: mstatus MIE pushed (MIE=0, MPIE=1, MPP=M)");
+    check_mem(s, 0x84, 0x00000020, "TRAP1 ebreak: mepc = pc of ebreak (0x20)");
+    check_mem(s, 0x85, 0x00000003, "TRAP1 ebreak: mcause = 3");
+    check_mem(s, 0x86, 0x00001880, "TRAP1: mstatus MIE pushed");
+    check_mem(s, 0x88, 0x00000028, "TRAP2 illegal: mepc = pc of 0x7F (0x28)");
+    check_mem(s, 0x89, 0x00000002, "TRAP2 illegal: mcause = 2");
+    check_mem(s, 0x8A, 0x00001880, "TRAP2: mstatus MIE pushed");
+    check_mem(s, 0x8C, 0x00000030, "TRAP3 RO CSR: mepc = pc of csrw (0x30)");
+    check_mem(s, 0x8D, 0x00000002, "TRAP3 RO CSR: mcause = 2 (illegal instr)");
+    check_mem(s, 0x8E, 0x00001880, "TRAP3: mstatus MIE pushed");
+    check_mem(s, 0x83, 0x00000004, "all 4 traps handled (count = 4)");
+}
+
 int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
 
@@ -566,6 +651,7 @@ int main(int argc, char** argv) {
     phase_mul();
     phase_div();
     phase_csr();
+    phase_trap();
 
     printf("\n%d/%d checks passed\n", checks - fails, checks);
     if (fails) { printf("TB RESULT: FAIL\n"); return 1; }

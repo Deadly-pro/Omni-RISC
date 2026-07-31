@@ -47,7 +47,10 @@ module decoder(
   output reg is_mul_div,          // R-type with funct7 == 7'b0000001 (M-ext)
   output reg [1:0] op_type,             // 0=R, 1=I, 2=S, 3=B (per tb_decoder.cpp)
   output reg illegal_instr,       // unrecognized opcode/funct combination
-  output reg is_csr
+  output reg is_csr,              // SYSTEM op, funct3 != 0 (a CSR instruction)
+  output reg is_ecall,            // SYSTEM, funct3=0, funct12=0x000
+  output reg is_ebreak,           // SYSTEM, funct3=0, funct12=0x001
+  output reg is_mret              // SYSTEM, funct3=0, funct12=0x302
 );
 assign rs1=instruction[19:15];
 assign rs2=instruction[24:20];
@@ -67,6 +70,9 @@ always @(*)begin
     alu_op=0;
     is_mul_div=0;
     is_csr=0;
+    is_ecall=0;
+    is_ebreak=0;
+    is_mret=0;
     illegal_instr=0;
     case(instruction[6:0])
     7'b0110011:begin //R Type
@@ -165,7 +171,14 @@ always @(*)begin
         if(funct3!=0)begin reg_write=1;
         is_csr=1;
         end
-        else reg_write=0;
+        else begin
+            case (instruction[31:20])
+                12'h000: is_ecall=1;
+                12'h001: is_ebreak=1;
+                12'h302: is_mret=1;
+                default: illegal_instr=1;
+            endcase
+        end
     end
     default:illegal_instr=1;
     endcase

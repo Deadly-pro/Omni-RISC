@@ -5,7 +5,7 @@
       input      [3:0]  wen,
       output reg [31:0] rdata      // registered read, 1-cycle latency
   );
-  reg [31:0] mem [0:1023];
+  reg [31:0] mem [0:1023] /* verilator public */;
   always @(posedge clk) begin
     if(wen[0])mem[addr[11:2]][7:0]<=wdata[7:0];
     if(wen[1])mem[addr[11:2]][15:8]<=wdata[15:8];

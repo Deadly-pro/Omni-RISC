@@ -19,8 +19,12 @@ module exec_stage (
      input         id_ex_reg_write,
      input         id_ex_mem_read,
      input         id_ex_mem_write,
-     input         id_ex_is_mul_div,   
-     input         id_ex_is_csr, 
+     input         id_ex_is_mul_div,
+     input         id_ex_is_csr,
+     input         id_ex_is_ecall,     // to trap_unit
+     input         id_ex_is_ebreak,    // to trap_unit
+     input         id_ex_is_mret,      // to trap_unit
+     input         id_ex_illegal,      // to trap_unit
      // ---- forwarding inputs ----
      input  [4:0]  id_ex_rs1_addr,     // NEW — match key
      input  [4:0]  id_ex_rs2_addr,     // NEW — match key
@@ -41,7 +45,10 @@ module exec_stage (
      output reg        ex_mem_reg_write,
      output reg        ex_mem_mem_read,
      output reg        ex_mem_mem_write,
-     output            div_stall
+     output            div_stall,
+        // ---- Trap/mret out — COMBINATIONAL, loops back to fetch + decode.flush ----
+     output            trap_valid,
+     output [31:0]     trap_target
  );
 
 reg [31:0] operand_a,operand_b,result;
@@ -83,6 +90,8 @@ branch_unit branch_unit1(
 wire [31:0] csr_rdata;
 wire        csr_illegal;
 wire [31:0] csr_mtvec_o, csr_mepc_o, csr_mstatus_o;
+wire        trap_taken, trap_mret;
+wire [31:0] trap_pc, trap_cause, trap_tval;
 csr_file csr_file1(
     .clk(clk),
     .reset(reset),
@@ -93,14 +102,32 @@ csr_file csr_file1(
     .csr_en(id_ex_is_csr),
     .csr_rdata(csr_rdata),
     .csr_illegal(csr_illegal),
-    .trap_taken(1'b0),
-    .trap_pc(32'b0),
-    .trap_cause(32'b0),
-    .trap_tval(32'b0),
-    .mret(1'b0),
+    .trap_taken(trap_taken),
+    .trap_pc(trap_pc),
+    .trap_cause(trap_cause),
+    .trap_tval(trap_tval),
+    .mret(trap_mret),
     .mtvec_o(csr_mtvec_o),
     .mepc_o(csr_mepc_o),
     .mstatus_o(csr_mstatus_o)
+);
+trap_unit trap1(
+    .id_ex_is_ecall(id_ex_is_ecall),
+    .id_ex_is_ebreak(id_ex_is_ebreak),
+    .id_ex_illegal(id_ex_illegal),
+    .id_ex_is_csr(id_ex_is_csr),
+    .csr_illegal(csr_illegal),
+    .id_ex_is_mret(id_ex_is_mret),
+    .id_ex_pc(id_ex_pc),
+    .mtvec(csr_mtvec_o),
+    .mepc(csr_mepc_o),
+    .trap_valid(trap_valid),
+    .trap_target(trap_target),
+    .trap_pc(trap_pc),
+    .trap_cause(trap_cause),
+    .trap_tval(trap_tval),
+    .trap_taken(trap_taken),
+    .mret(trap_mret)
 );
 wire [31:0] mul_result;
   multiplier mul1(
@@ -133,6 +160,10 @@ always @(posedge clk) begin
      ex_mem_mem_write<=0;
     end
     else if (is_div & ~div_done) begin
+    ex_mem_reg_write <= 0; ex_mem_mem_read <= 0; ex_mem_mem_write <= 0;
+    end
+    else if (trap_valid) begin
+    // trapping instruction must not retire: no writeback, no mem access
     ex_mem_reg_write <= 0; ex_mem_mem_read <= 0; ex_mem_mem_write <= 0;
     end
     else if(!stall)begin
