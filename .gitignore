@@ -50,3 +50,7 @@ Thumbs.db
 .idea/
 resume.pdf
 program.hex
+
+# Compliance
+tests/riscv-arch-test/          # cloned by tests/run_compliance.sh
+tests/compliance_work/          # per-test build artifacts

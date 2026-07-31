@@ -167,6 +167,8 @@ always @(*)begin
         alu_op=0;
         op_type=1;
     end
+    7'b0001111:begin //FENCE / FENCE.I — no-op on a single-hart core with no I-cache
+    end
     7'b1110011:begin
         if(funct3!=0)begin reg_write=1;
         is_csr=1;

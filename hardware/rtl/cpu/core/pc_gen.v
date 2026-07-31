@@ -35,7 +35,7 @@ module pc_gen(
   input  [31:0] redirect_target,
   input  trap_valid,       // from trap_unit (higher priority)
   input  [31:0] trap_target,      // mtvec (trap) or mepc (mret)
-  output reg [31:0] pc,           // current fetch address
+  output reg [31:0] pc /* verilator public */,   // current fetch address (public for the compliance harness)
   output reg [31:0] pc_plus4         // pc + 4 (link value for JAL/JALR)
 );
 always @(posedge clk) begin
