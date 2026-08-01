@@ -14,6 +14,9 @@
 //
 // NOTE: the memory interface has no write path, so write-through updates the
 // cache but cannot reach the backing memory (a tb_cache contract gap).
+// req_addr[1:0] is deliberately unused — the cache is word-granular (byte
+// lanes ride byte_en, not the address bits)
+// verilator lint_off UNUSEDSIGNAL
 module l1_dcache (
     input         clk,
     input         reset,
@@ -35,7 +38,6 @@ module l1_dcache (
     output reg    mem_read_req,
     input         mem_read_ack
 );
-    localparam INDEX_W = 6;
     localparam TAG_W   = 21;
     localparam WORDS   = 8;
     localparam SETS    = 64;
@@ -55,7 +57,7 @@ module l1_dcache (
     reg [1:0] state;
 
     reg       req;                    // a request is latched
-    reg       req_read, req_write;
+    reg       req_write;
     reg [31:0] req_addr, req_wdata;
     reg [3:0]  req_ben;
 
@@ -74,21 +76,25 @@ module l1_dcache (
     wire req_hit0 = valid[0][req_addr[10:5]] && tag[0][req_addr[10:5]] == req_addr[31:11];
 
     // pick a way for a refill: prefer an invalid way, else the least-recently filled
-    function automatic pick_way(input [31:0] a, input last);
-        if (!valid[0][a[10:5]])      pick_way = 1'b0;
-        else if (!valid[1][a[10:5]]) pick_way = 1'b1;
-        else                         pick_way = last ? 1'b0 : 1'b1;
+    function automatic pick_way(input [5:0] idx, input last);
+        if (!valid[0][idx])      pick_way = 1'b0;
+        else if (!valid[1][idx]) pick_way = 1'b1;
+        else                     pick_way = last ? 1'b0 : 1'b1;
     endfunction
 
     always @(posedge clk) begin
         if (reset) begin
             state <= IDLE; req <= 1'b0; ready <= 1'b0; mem_read_req <= 1'b0;
             rdata <= 32'b0; last_way <= 1'b0; pending_write <= 1'b0;
+            for (k = 0; k < SETS; k = k + 1) begin
+                valid[0][k] <= 1'b0;
+                valid[1][k] <= 1'b0;
+            end
         end else begin
             mem_read_req <= 1'b0;     // pulse
             ready        <= 1'b0;     // pulse
             if (read_en | write_en) begin
-                req <= 1'b1; req_read <= read_en; req_write <= write_en;
+                req <= 1'b1; req_write <= write_en;
                 req_addr <= addr; req_wdata <= wdata; req_ben <= byte_en;
             end
             case (state)
@@ -118,7 +124,7 @@ module l1_dcache (
                             // write miss → write-allocate: refill, then apply
                             pending_write <= 1'b1;
                             fill_cnt <= 3'b0;
-                            fill_way <= pick_way(req_addr, last_way);
+                            fill_way <= pick_way(req_addr[10:5], last_way);
                             mem_addr <= {req_addr[31:5], 5'b0};
                             mem_read_req <= 1'b1;
                             state <= WAITM;
@@ -131,7 +137,7 @@ module l1_dcache (
                     else begin
                         // read miss → refill the line (8 words)
                         fill_cnt <= 3'b0;
-                        fill_way <= pick_way(req_addr, last_way);
+                        fill_way <= pick_way(req_addr[10:5], last_way);
                         mem_addr <= {req_addr[31:5], 5'b0};
                         mem_read_req <= 1'b1;
                         state <= WAITM;
@@ -171,3 +177,4 @@ module l1_dcache (
         end
     end
 endmodule
+// verilator lint_on UNUSEDSIGNAL

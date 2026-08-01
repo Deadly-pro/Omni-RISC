@@ -25,7 +25,11 @@ module soc_top (
 
     wire [31:0] uart_rdata, timer_rdata, gpio_rdata;
 
-    cpu_top #(.DMEM_FILE("program.hex")) u_cpu(
+    // Phase C: the L1 caches are module-verified (tb_cache/tb_icache) but the
+    // SoC pipeline integration still has a fetch-pairing bug on concurrent
+    // cache refills (documented in docs/roadmap.md), so the SoC runs the
+    // cacheless CPU until that is resolved.
+    cpu_top #(.DMEM_FILE("program.hex"), .USE_CACHES(0)) u_cpu(
         .clk(clk),
         .reset(reset),
         .pbus_addr(pbus_addr),

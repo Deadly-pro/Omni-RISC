@@ -1,5 +1,6 @@
 module mem_stage #(
-    parameter DMEM_FILE = ""          // SoC sets the firmware image; bare-CPU tests leave empty
+    parameter DMEM_FILE = "",          // SoC sets the firmware image; bare-CPU tests leave empty
+    parameter USE_CACHES = 0           // 0 = direct data_bram (pre-Phase-C), 1 = L1 D-cache
 ) (
       input         clk,
       input         reset,
@@ -32,16 +33,89 @@ module mem_stage #(
       output [31:0] pbus_wdata,     // lane-aligned write data (from LSU)
       output [3:0]  pbus_wen,       // per-byte write enables (from LSU)
       output        pbus_read,      // ex_mem_mem_read
-      input  [31:0] pbus_rdata      // muxed read data from the SoC decoder
+      input  [31:0] pbus_rdata,     // muxed read data from the SoC decoder
+
+      // ---- L1 D-cache freeze ----
+      output        mem_stall       // 1 = a cache op is pending → freeze the pipeline
   );
   wire [31:0] dmem_addr, dmem_wdata, dmem_rdata;
   wire [3:0]  dmem_wen;
 
-  // data_bram owns the 0x00000000..0x0003FFFF window; everything above is a
-  // peripheral access routed on pbus. Gate the BRAM so peripheral addresses
-  // don't alias into it.
-  wire data_cs = ex_mem_alu_result < 32'h0004_0000;
-  wire [3:0] dmem_wen_gated = data_cs ? dmem_wen : 4'b0;
+  // data_bram decodes addr[17:2] (256KB, aliased every 256KB). The pbus slaves
+  // live at 0x02000000+ (timer) and 0x40000000+ (UART/GPIO), so BOTH the low
+  // 256KB AND the 0x100000-0x13FFFF aliased window are data — the riscv-arch-test
+  // compliance images link at 0x100000 and store their signature/tohost there.
+  wire data_cs = (ex_mem_alu_result < 32'h0004_0000) ||
+                 ((ex_mem_alu_result >= 32'h0010_0000) && (ex_mem_alu_result < 32'h0014_0000));
+  wire is_cache_op = data_cs & (ex_mem_mem_read | ex_mem_mem_write);
+
+  // data_bram glue (addr/wen differ per cache config; wdata is always the LSU's)
+  wire [31:0] dbram_addr;
+  wire [3:0]  dbram_wen;
+  wire [31:0] load_rdata;    // value mem_wb_rdata captures
+  wire        mem_hold;      // 1 = hold MEM/WB + freeze the pipeline
+
+  lsu u_lsu(
+      .addr(ex_mem_alu_result), .store_data(ex_mem_store_data),
+      .funct3(ex_mem_funct3), .mem_write(ex_mem_mem_write),
+      .dmem_addr(dmem_addr), .dmem_wdata(dmem_wdata), .dmem_wen(dmem_wen)
+  );
+  data_bram #(.MemFile(DMEM_FILE)) u_dbram(
+      .clk(clk), .addr(dbram_addr), .wdata(dmem_wdata),
+      .wen(dbram_wen), .rdata(dmem_rdata)
+  );
+
+  generate
+    if (USE_CACHES) begin : g_dcache
+      // ---- L1 D-cache: refills from data_bram (0-latency comb read, so ack =
+      // request), write-through reaches data_bram via a ONE-SHOT direct store
+      // (the cache's own memory interface has no write path) ----
+      reg issue_done;             // the cache op has been presented to the cache
+      wire dc_hit, dc_miss, dc_ready;
+      wire [31:0] dc_rdata;
+      wire [31:0] dc_mem_addr;
+      wire        dc_mem_req, dc_mem_ack;
+
+      l1_dcache u_dcache(
+          .clk(clk), .reset(reset),
+          .addr(dmem_addr), .wdata(dmem_wdata), .byte_en(dmem_wen),
+          .read_en(is_cache_op & ~issue_done & ex_mem_mem_read),
+          .write_en(is_cache_op & ~issue_done & ex_mem_mem_write),
+          .rdata(dc_rdata), .hit(dc_hit), .miss(dc_miss), .ready(dc_ready),
+          .mem_addr(dc_mem_addr), .mem_rdata(dmem_rdata),
+          .mem_read_req(dc_mem_req), .mem_read_ack(dc_mem_ack)
+      );
+      assign dc_mem_ack = dc_mem_req;      // data_bram read is combinational
+
+      // issue the request once, hold until the cache reports ready
+      always @(posedge clk) begin
+          if (reset) issue_done <= 1'b0;
+          else if (is_cache_op && dc_ready) issue_done <= 1'b0;
+          else if (is_cache_op && ~issue_done) issue_done <= 1'b1;
+          else if (~is_cache_op) issue_done <= 1'b0;
+      end
+
+      assign mem_hold    = is_cache_op & ~dc_ready;
+      assign load_rdata  = data_cs ? dc_rdata : pbus_rdata;
+      // refill reads take the cache's address; otherwise (the one-shot direct
+      // write-through store) the LSU's address
+      assign dbram_addr  = dc_mem_req ? dc_mem_addr : dmem_addr;
+      assign dbram_wen   = dmem_wen & {4{data_cs & ~issue_done}};
+    end else begin : g_nocache
+      assign mem_hold    = 1'b0;
+      assign load_rdata  = data_cs ? dmem_rdata : pbus_rdata;
+      assign dbram_addr  = dmem_addr;
+      assign dbram_wen   = data_cs ? dmem_wen : 4'b0;
+    end
+  endgenerate
+
+  assign mem_stall  = mem_hold;
+  // pbus writes only ever target peripherals (a data-window store is the
+  // cache's business); gating keeps the slaves from seeing cache-op writes
+  assign pbus_addr  = ex_mem_alu_result;
+  assign pbus_wdata = dmem_wdata;
+  assign pbus_wen   = data_cs ? 4'b0 : dmem_wen;
+  assign pbus_read  = ex_mem_mem_read;
 
 always @(posedge clk)begin
 if (reset)begin
@@ -55,9 +129,9 @@ if (reset)begin
     mem_wb_ld_lsb    <= 2'b00;
     mem_wb_ld_funct3 <= 3'b000;
     end
-else if (!stall) begin
+else if (!stall && !mem_hold) begin
     mem_wb_alu_result <= ex_mem_alu_result;
-    mem_wb_rdata      <= data_cs ? dmem_rdata : pbus_rdata;
+    mem_wb_rdata      <= load_rdata;
     mem_wb_rd <= ex_mem_rd;
     mem_wb_pc_plus4 <= ex_mem_pc_plus4;
     mem_wb_jump <= ex_mem_jump;
@@ -67,19 +141,4 @@ else if (!stall) begin
     mem_wb_ld_funct3 <= ex_mem_funct3;
 end
 end
-
-lsu u_lsu(
-      .addr(ex_mem_alu_result), .store_data(ex_mem_store_data),
-      .funct3(ex_mem_funct3), .mem_write(ex_mem_mem_write),
-      .dmem_addr(dmem_addr), .dmem_wdata(dmem_wdata), .dmem_wen(dmem_wen)
-  );
-  data_bram #(.MemFile(DMEM_FILE)) u_dbram(
-      .clk(clk), .addr(dmem_addr), .wdata(dmem_wdata),
-      .wen(dmem_wen_gated), .rdata(dmem_rdata)
-  );
-
-  assign pbus_addr  = ex_mem_alu_result;
-  assign pbus_wdata = dmem_wdata;
-  assign pbus_wen   = dmem_wen;
-  assign pbus_read  = ex_mem_mem_read;
 endmodule

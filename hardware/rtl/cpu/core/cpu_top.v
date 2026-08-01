@@ -1,6 +1,7 @@
 // Omni-RISC APU — CPU: cpu_top
 module cpu_top #(
-    parameter DMEM_FILE = ""      // SoC sets the firmware image; bare-CPU tests leave empty
+    parameter DMEM_FILE = "",      // SoC sets the firmware image; bare-CPU tests leave empty
+    parameter USE_CACHES = 0       // 0 = direct BRAMs (tb_cpu_top/compliance), 1 = L1 caches (SoC)
 ) (
       input clk,
       input reset,
@@ -19,8 +20,9 @@ wire trap_valid;
 wire [31:0] trap_target;
 wire redirect_valid;
 wire [31:0] redirect_target,if_id_pc,if_id_pc_plus4,if_id_instr;
+wire icache_miss, mem_stall;
 
-fetch_stage u_fetch(
+fetch_stage #(.USE_CACHES(USE_CACHES)) u_fetch(
     .clk(clk),
     .reset(reset),
     .stall(freeze),
@@ -30,7 +32,8 @@ fetch_stage u_fetch(
     .trap_target(trap_target),
     .if_id_pc(if_id_pc),
     .if_id_pc_plus4(if_id_pc_plus4),
-    .if_id_instr(if_id_instr)
+    .if_id_instr(if_id_instr),
+    .icache_miss(icache_miss)
 );
 wire flush=redirect_valid | trap_valid;
 //loopback from wb stage
@@ -46,12 +49,15 @@ wire [2:0]  id_ex_funct3;
 wire id_ex_branch,id_ex_jump,id_ex_reg_write,id_ex_mem_read,id_ex_mem_write,id_ex_is_csr;
 wire id_ex_is_ecall,id_ex_is_ebreak,id_ex_is_mret,id_ex_illegal;
 wire div_stall;
-wire freeze = stall | div_stall;
+// A cache refill (I or D) freezes every stage exactly like div_stall: the
+// stalled instruction must not retire, and its EX/MEM bundle must not be
+// clobbered by whatever decode/exec held.
+wire freeze = stall | div_stall | icache_miss | mem_stall;
 decode_stage u_decode(
     .clk(clk),
     .reset(reset),
-    .stall(stall), 
-    .hold(div_stall),
+    .stall(stall),
+    .hold(div_stall | icache_miss | mem_stall),
     .flush(flush),
     .if_id_pc(if_id_pc),
     .if_id_pc_plus4(if_id_pc_plus4),
@@ -100,7 +106,9 @@ hazard_unit u_hazard(
 exec_stage u_exec(
     .clk(clk),
     .reset(reset),
-    .stall(1'b0), // step-8: EX gains real stall on M-ext (div busy) — see roadmap
+    .stall(mem_stall | icache_miss), // phase-C: hold EX/MEM during any cache refill;
+                                     // without it EX re-executes the instruction
+                                     // frozen in ID/EX on every refill cycle
     .div_stall(div_stall),
     .id_ex_pc(id_ex_pc),
     .id_ex_pc_plus4(id_ex_pc_plus4),
@@ -147,10 +155,10 @@ wire [4:0]  mem_wb_rd;
 wire mem_wb_jump,mem_wb_mem_read,mem_wb_reg_write;
 wire [1:0] mem_wb_ld_lsb;
 wire [2:0] mem_wb_ld_funct3;
-mem_stage #(.DMEM_FILE(DMEM_FILE)) u_mem(
+mem_stage #(.DMEM_FILE(DMEM_FILE), .USE_CACHES(USE_CACHES)) u_mem(
     .clk(clk),
     .reset(reset),
-    .stall(1'b0), // phase-C: MEM gains real stall on cache miss — see roadmap
+    .stall(1'b0), // MEM holds itself via mem_stall while a cache op is pending
 
     .ex_mem_alu_result(ex_mem_alu_result),
     .ex_mem_store_data(ex_mem_store_data),
@@ -178,7 +186,10 @@ mem_stage #(.DMEM_FILE(DMEM_FILE)) u_mem(
     .pbus_wdata(pbus_wdata),
     .pbus_wen(pbus_wen),
     .pbus_read(pbus_read),
-    .pbus_rdata(pbus_rdata)
+    .pbus_rdata(pbus_rdata),
+
+      // ---- L1 D-cache freeze ----
+    .mem_stall(mem_stall)
   );
 
 wb_stage u_wb(
