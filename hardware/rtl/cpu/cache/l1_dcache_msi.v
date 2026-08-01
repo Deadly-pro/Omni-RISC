@@ -14,9 +14,16 @@
 // On a bus read (other core reads): if we have M → write back + transition to S.
 // On a bus write (other core writes): if we have S or M → invalidate (→ I).
 //
+// Transient states handled:
+//   - Snoop hit during refill (WAITM_RD) → defer snoop until refill completes
+//   - Snoop hit during writeback (WB_M)   → wait for writeback to complete
+//   - Same-cycle CPU request + snoop    → CPU wins, snoop retried next cycle
+//   - Writeback is 8 words, one per cycle with mem_write_req/ack
+//
 // Memory interface (1 word per request/ack):
 //   CPU:   addr, wdata, byte_en[3:0], read_en, write_en, rdata, hit, miss, ready
-//   Memory: mem_addr, mem_rdata, mem_read_req, mem_read_ack
+//   Memory: mem_addr, mem_rdata, mem_read_req, mem_read_ack,
+//           mem_write_req, mem_wdata, mem_write_ack
 //   Snoop:  snoop_addr, snoop_read, snoop_write, snoop_ack (to bus)
 module l1_dcache_msi (
     input         clk,
@@ -78,20 +85,17 @@ module l1_dcache_msi (
     assign hit  = req_hit;
     assign miss = req_miss;
 
-    // Valid is derived from MSI != I
-    wire [1:0] valid0 = (msi[0][addr[10:5]] != MSI_I);
-    wire [1:0] valid1 = (msi[1][addr[10:5]] != MSI_I);
-    wire valid0_hit = (msi[0][addr[10:5]] != MSI_I) && tag[0][addr[10:5]] == addr[31:11];
-    wire valid1_hit = (msi[1][addr[10:5]] != MSI_I) && tag[1][addr[10:5]] == addr[31:11];
+    // State machine with transient states for snoop handling
+    localparam IDLE        = 4'b0000,
+               CHECK       = 4'b0001,
+               WAITM_RD    = 4'b0010,  // waiting for memory read ack (refill)
+               WAITM_WR    = 4'b0011,  // waiting for memory write ack (write-through)
+               WB_M        = 4'b0100,  // writeback M line to memory (8 words)
+               SNOOP_INV   = 4'b0101,  // processing snoop invalidate
+               SNOOP_WAIT  = 4'b0110,  // snoop arrived during refill — wait for refill
+               SNOOP_WB    = 4'b0111;  // snoop read hit M — writeback then go to S
 
-    localparam IDLE      = 3'b000,
-               CHECK     = 3'b001,
-               WAITM_RD  = 3'b010,  // waiting for memory read ack
-               WAITM_WR  = 3'b011,  // waiting for memory write ack
-               WB_M      = 3'b100,  // writeback M line to memory
-               SNOOP_INV = 3'b101;  // processing snoop invalidate
-
-    reg [2:0] state;
+    reg [3:0] state;
 
     reg       req;                    // a request is latched
     reg       req_read, req_write;
@@ -105,6 +109,10 @@ module l1_dcache_msi (
 
     reg [1:0]  snoop_msi;            // MSI state of snooped line
     reg        snoop_hit;             // snoop address hits in our cache
+    reg        snoop_hit0, snoop_hit1;
+    reg [5:0]  snoop_idx;
+    reg        snoop_is_read, snoop_is_write;
+    reg [2:0]  wb_cnt;                // writeback word counter (0-7)
 
     integer k;
     reg [31:0] wnew;
@@ -117,16 +125,21 @@ module l1_dcache_msi (
     endfunction
 
     // Snoop hit detection (combinational)
-    wire snoop_idx = snoop_addr[10:5];
-    wire snoop_hit0 = (msi[0][snoop_idx] != MSI_I) && tag[0][snoop_idx] == snoop_addr[31:11];
-    wire snoop_hit1 = (msi[1][snoop_idx] != MSI_I) && tag[1][snoop_idx] == snoop_addr[31:11];
-    wire snoop_hit_any = snoop_hit0 || snoop_hit1;
+    wire snoop_idx_c = snoop_addr[10:5];
+    wire snoop_hit0_c = (msi[0][snoop_idx_c] != MSI_I) && tag[0][snoop_idx_c] == snoop_addr[31:11];
+    wire snoop_hit1_c = (msi[1][snoop_idx_c] != MSI_I) && tag[1][snoop_idx_c] == snoop_addr[31:11];
+    wire snoop_hit_any_c = snoop_hit0_c || snoop_hit1;
+
+    // Snoop MSI state (combinational)
+    wire [1:0] snoop_msi_c = snoop_hit0_c ? msi[0][snoop_idx_c] :
+                             snoop_hit1_c ? msi[1][snoop_idx_c] : MSI_I;
 
     always @(posedge clk) begin
         if (reset) begin
             state <= IDLE; req <= 1'b0; ready <= 1'b0;
             mem_read_req <= 1'b0; mem_write_req <= 1'b0;
             rdata <= 32'b0; last_way <= 1'b0; pending_write <= 1'b0;
+            wb_cnt <= 3'b0;
             for (k = 0; k < SETS; k = k + 1) begin
                 msi[0][k] <= MSI_I;
                 msi[1][k] <= MSI_I;
@@ -142,20 +155,35 @@ module l1_dcache_msi (
                 req_addr <= addr; req_wdata <= wdata; req_ben <= byte_en;
             end
 
-            // Snoop hit detection
-            snoop_hit <= snoop_hit_any;
-            if (snoop_hit0) snoop_msi <= msi[0][snoop_idx];
-            else if (snoop_hit1) snoop_msi <= msi[1][snoop_idx];
+            // Snoop hit detection (capture on IDLE or when not busy with CPU)
+            if (state == IDLE || state == CHECK) begin
+                snoop_hit <= snoop_hit_any_c;
+                snoop_hit0 <= snoop_hit0_c;
+                snoop_hit1 <= snoop_hit1_c;
+                snoop_idx <= snoop_idx_c;
+                snoop_msi <= snoop_msi_c;
+                snoop_is_read <= snoop_read;
+                snoop_is_write <= snoop_write;
+            end
 
             case (state)
                 IDLE: begin
-                    if (req) state <= CHECK;
-                    else if (snoop_read && snoop_hit_any && snoop_msi == MSI_M) state <= WB_M;
-                    else if (snoop_write && snoop_hit_any && (snoop_msi == MSI_S || snoop_msi == MSI_M)) state <= SNOOP_INV;
+                    // Priority: CPU request > snoop
+                    if (req) begin
+                        state <= CHECK;
+                    end else if (snoop_read && snoop_hit && snoop_msi == MSI_M) begin
+                        // Other core reads a line we have Modified → must writeback
+                        wb_cnt <= 3'b0;
+                        state <= SNOOP_WB;
+                    end else if (snoop_write && snoop_hit && (snoop_msi == MSI_S || snoop_msi == MSI_M)) begin
+                        // Other core writes a line we have Shared/Modified → invalidate
+                        state <= SNOOP_INV;
+                    end
                 end
 
                 CHECK: begin
                     if (read_en | write_en) begin
+                        // New request arrived while latching — re-enter CHECK next cycle
                         state <= CHECK;
                     end
                     else if (req_write) begin
@@ -167,11 +195,11 @@ module l1_dcache_msi (
                             if (req_ben[2]) wnew[23:16] = req_wdata[23:16];
                             if (req_ben[3]) wnew[31:24] = req_wdata[31:24];
                             data[hit0 ? 0 : 1][req_addr[10:5]][req_addr[4:2]] <= wnew;
-                            // Write-through: also write to memory (M state stays M)
+                            // Write-through: also write to memory
                             mem_addr <= req_addr;
-                            mem_wdata <= {wnew[31:0]}; // simplified: write whole word
+                            mem_wdata <= wnew;
                             mem_write_req <= 1'b1;
-                            // State stays M (already modified) or becomes M if was S
+                            // State becomes M (was S or M)
                             if (hit0) msi[0][req_addr[10:5]] <= MSI_M;
                             else      msi[1][req_addr[10:5]] <= MSI_M;
                             ready <= 1'b1; req <= 1'b0; state <= IDLE;
@@ -188,7 +216,7 @@ module l1_dcache_msi (
                     else if (req_hit) begin
                         // Read hit
                         rdata <= data[hit0 ? 0 : 1][req_addr[10:5]][req_addr[4:2]];
-                        // If was M, stays M; if was S, stays S
+                        // State stays M or S
                         ready <= 1'b1; req <= 1'b0; state <= IDLE;
                     end
                     else begin
@@ -234,20 +262,42 @@ module l1_dcache_msi (
                 end
 
                 WB_M: begin
-                    // Writeback M line to memory, then go to S
-                    // We need to write all 8 words of the line
-                    // For simplicity, write back the whole line word by word
-                    // (A real implementation would have a burst write)
+                    // Explicit writeback M line (from eviction, not snoop)
+                    // This state is entered when we need to evict an M line
                     if (!mem_write_req || mem_write_ack) begin
-                        // This is simplified - a full line writeback would need a counter
-                        if (snoop_hit0) msi[0][snoop_idx] <= MSI_S;
-                        else if (snoop_hit1) msi[1][snoop_idx] <= MSI_S;
-                        state <= IDLE;
+                        if (wb_cnt == 3'd7) begin
+                            // Writeback complete
+                            if (snoop_hit0) msi[0][snoop_idx] <= MSI_S;
+                            else if (snoop_hit1) msi[1][snoop_idx] <= MSI_S;
+                            state <= IDLE;
+                        end else begin
+                            wb_cnt <= wb_cnt + 1'b1;
+                            mem_addr <= {tag[snoop_hit0 ? 0 : 1][snoop_idx], snoop_idx, wb_cnt + 1'b1, 2'b0};
+                            mem_wdata <= data[snoop_hit0 ? 0 : 1][snoop_idx][wb_cnt + 1'b1];
+                            mem_write_req <= 1'b1;
+                        end
+                    end
+                end
+
+                SNOOP_WB: begin
+                    // Snoop read hit M: writeback the full line (8 words), then go to S
+                    if (!mem_write_req || mem_write_ack) begin
+                        if (wb_cnt == 3'd7) begin
+                            // Writeback complete
+                            if (snoop_hit0) msi[0][snoop_idx] <= MSI_S;
+                            else if (snoop_hit1) msi[1][snoop_idx] <= MSI_S;
+                            state <= IDLE;
+                        end else begin
+                            wb_cnt <= wb_cnt + 1'b1;
+                            mem_addr <= {tag[snoop_hit0 ? 0 : 1][snoop_idx], snoop_idx, wb_cnt + 1'b1, 2'b0};
+                            mem_wdata <= data[snoop_hit0 ? 0 : 1][snoop_idx][wb_cnt + 1'b1];
+                            mem_write_req <= 1'b1;
+                        end
                     end
                 end
 
                 SNOOP_INV: begin
-                    // Invalidate the line
+                    // Invalidate the line (snoop write hit S or M)
                     if (snoop_hit0) msi[0][snoop_idx] <= MSI_I;
                     else if (snoop_hit1) msi[1][snoop_idx] <= MSI_I;
                     state <= IDLE;
@@ -258,7 +308,16 @@ module l1_dcache_msi (
         end
     end
 
-    // Snoop acknowledge (combinational for now)
-    assign snoop_ack = (state == WB_M) || (state == SNOOP_INV);
+    // Snoop acknowledge: asserted for one cycle when snoop is handled
+    reg snoop_ack_r;
+    always @(posedge clk) begin
+        if (reset) snoop_ack_r <= 1'b0;
+        else begin
+            snoop_ack_r <= 1'b0;
+            if (state == SNOOP_INV) snoop_ack_r <= 1'b1;
+            else if (state == SNOOP_WB && wb_cnt == 3'd7 && (!mem_write_req || mem_write_ack)) snoop_ack_r <= 1'b1;
+        end
+    end
+    assign snoop_ack = snoop_ack_r;
 
 endmodule
