@@ -25,6 +25,12 @@ module trap_unit (
     input         mie_mtie,         // machine timer interrupt enable (mie.MTIE)
     input         mip_mtip,         // machine timer interrupt pending (mip.MTIP)
 
+    // redirect-drain info (from exec_stage): a branch/jump redirected recently
+    // and wrong-path instructions are draining. An interrupt taken now must use
+    // the redirect target as mepc, not the wrong-path id_ex_pc.
+    input         redirect_pending,
+    input  [31:0] redirect_target,
+
     output        trap_valid,       // exception OR mret → redirect fetch
     output [31:0] trap_target,      // mtvec (trap) or mepc (mret)
     output [31:0] trap_pc,          // → csr_file.mepc on trap_taken
@@ -37,7 +43,11 @@ module trap_unit (
     wire is_exception =
         id_ex_illegal | id_ex_is_ecall | id_ex_is_ebreak | (id_ex_is_csr & csr_illegal);
 
-    wire timer_int = mstatus_mie & mie_mtie & mip_mtip;
+    // Take the interrupt only when id_ex_pc is a real instruction (not a
+    // flush bubble) or the pipeline is draining a redirect (wrong-path is in
+    // EX, so mepc must come from the redirect target instead).
+    wire timer_int = mstatus_mie & mie_mtie & mip_mtip &
+                     ((id_ex_pc != 32'b0) | redirect_pending);
 
     wire [4:0] cause_code = id_ex_is_ecall ? 5'd11
                           : id_ex_is_ebreak ? 5'd3
@@ -47,7 +57,7 @@ module trap_unit (
     assign mret       = id_ex_is_mret;
     assign trap_valid = trap_taken | mret;
     assign trap_target= id_ex_is_mret ? mepc : mtvec;
-    assign trap_pc    = id_ex_pc;
+    assign trap_pc    = (timer_int & redirect_pending) ? redirect_target : id_ex_pc;
     assign trap_cause = timer_int ? 32'h8000_0007 : {27'b0, cause_code};
     assign trap_tval  = 32'b0;
 

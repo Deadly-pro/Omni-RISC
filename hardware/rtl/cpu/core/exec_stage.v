@@ -128,6 +128,8 @@ trap_unit trap1(
     .mstatus_mie(csr_mstatus_o[3]),
     .mie_mtie(csr_mie_o[7]),
     .mip_mtip(csr_mip_o[7]),
+    .redirect_pending(redirect_pending),
+    .redirect_target(redirect_target_q),
     .trap_valid(trap_valid),
     .trap_target(trap_target),
     .trap_pc(trap_pc),
@@ -146,6 +148,27 @@ wire [31:0] mul_result;
 wire is_mul = id_ex_is_mul_div & ~id_ex_funct3[2];
 assign redirect_valid=take_branch;
 assign redirect_target=result&~32'h1;
+
+// A branch/jump redirect drains wrong-path (fetch-ahead) instructions for a
+// few cycles. An interrupt taken during that drain must not capture a
+// wrong-path pc as mepc (mret would jump into garbage). Track the last
+// redirect target and a short pending window so the interrupt's mepc can fall
+// back to the redirect target (the valid continuation point).
+reg [1:0]  redirect_win;
+reg [31:0] redirect_target_q;
+always @(posedge clk) begin
+    if (reset) begin
+        redirect_win      <= 2'b00;
+        redirect_target_q <= 32'b0;
+    end else if (redirect_valid) begin
+        redirect_win      <= 2'b11;
+        redirect_target_q <= redirect_target;
+    end else if (redirect_win != 2'b00) begin
+        redirect_win <= redirect_win - 1'b1;
+    end
+end
+wire redirect_pending = redirect_valid | (redirect_win != 2'b00);
+
 wire [31:0] div_result;  wire div_busy, div_done;
 wire is_div    = id_ex_is_mul_div & id_ex_funct3[2];
 wire div_start = is_div & ~div_busy & ~div_done;
