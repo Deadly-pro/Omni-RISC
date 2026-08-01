@@ -20,10 +20,15 @@ module trap_unit (
     input  [31:0] mtvec,            // exception vector (from csr_file)
     input  [31:0] mepc,             // mret target   (from csr_file)
 
+    // interrupt enables / pending (from csr_file)
+    input         mstatus_mie,      // global interrupt enable (mstatus.MIE)
+    input         mie_mtie,         // machine timer interrupt enable (mie.MTIE)
+    input         mip_mtip,         // machine timer interrupt pending (mip.MTIP)
+
     output        trap_valid,       // exception OR mret → redirect fetch
     output [31:0] trap_target,      // mtvec (trap) or mepc (mret)
     output [31:0] trap_pc,          // → csr_file.mepc on trap_taken
-    output [31:0] trap_cause,       // ecall=11, ebreak=3, illegal=2
+    output [31:0] trap_cause,       // ecall=11, ebreak=3, illegal=2, timer-int=0x80000007
     output [31:0] trap_tval,        // 0 for these synchronous causes
     output        trap_taken,       // → csr_file (exceptions only)
     output        mret              // → csr_file (mstatus pop)
@@ -32,16 +37,18 @@ module trap_unit (
     wire is_exception =
         id_ex_illegal | id_ex_is_ecall | id_ex_is_ebreak | (id_ex_is_csr & csr_illegal);
 
+    wire timer_int = mstatus_mie & mie_mtie & mip_mtip;
+
     wire [4:0] cause_code = id_ex_is_ecall ? 5'd11
                           : id_ex_is_ebreak ? 5'd3
                           : 5'd2;                      // illegal (incl. CSR fault)
 
-    assign trap_taken = is_exception;
+    assign trap_taken = is_exception | timer_int;
     assign mret       = id_ex_is_mret;
     assign trap_valid = trap_taken | mret;
     assign trap_target= id_ex_is_mret ? mepc : mtvec;
     assign trap_pc    = id_ex_pc;
-    assign trap_cause = {27'b0, cause_code};
+    assign trap_cause = timer_int ? 32'h8000_0007 : {27'b0, cause_code};
     assign trap_tval  = 32'b0;
 
 endmodule

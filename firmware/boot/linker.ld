@@ -1,31 +1,32 @@
-/* Omni-RISC APU — Linker Script for RV32IM Bare-Metal Firmware */
-
+/* Omni-RISC APU — Linker Script for RV32IM Bare-Metal Firmware
+ *
+ * Single flat 64KB region at 0x00000000. The CPU has separate instruction and
+ * data BRAMs, both indexed by the low address bits, so code and data may share
+ * the flat address space; keeping them contiguous from 0x0 makes the ELF load
+ * into both memories from one flat hex image.
+ */
 OUTPUT_ARCH("riscv")
 ENTRY(_start)
 
 MEMORY
 {
-    /* Instruction BRAM: 64KB starting at 0x00000000 */
-    IMEM (rx)  : ORIGIN = 0x00000000, LENGTH = 64K
-
-    /* Data BRAM: 192KB starting at 0x00010000 */
-    DMEM (rwx) : ORIGIN = 0x00010000, LENGTH = 192K
+    RAM (rwx) : ORIGIN = 0x00000000, LENGTH = 64K
 }
 
 SECTIONS
 {
-    /* Code goes into instruction memory */
+    /* Code */
     .text : {
         *(.text.startup)    /* _start and early boot */
         *(.text.trap)       /* trap handler */
         *(.text*)           /* all other code */
-    } > IMEM
+    } > RAM
 
     /* Read-only data */
     .rodata : {
         *(.rodata*)
         *(.srodata*)
-    } > DMEM
+    } > RAM
 
     /* Initialized data */
     .data : {
@@ -33,7 +34,7 @@ SECTIONS
         *(.data*)
         *(.sdata*)
         _data_end = .;
-    } > DMEM
+    } > RAM
 
     /* Uninitialized data (zeroed by boot code) */
     .bss (NOLOAD) : {
@@ -42,8 +43,8 @@ SECTIONS
         *(.sbss*)
         *(COMMON)
         _bss_end = .;
-    } > DMEM
+    } > RAM
 
-    /* Stack at top of data memory */
-    _stack_top = ORIGIN(DMEM) + LENGTH(DMEM);
+    /* Stack at top of memory (grows down; first access is below 64K) */
+    _stack_top = ORIGIN(RAM) + LENGTH(RAM);
 }

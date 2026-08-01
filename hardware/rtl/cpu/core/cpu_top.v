@@ -1,8 +1,18 @@
 // Omni-RISC APU — CPU: cpu_top
-// TODO: Implement
-module cpu_top (
+module cpu_top #(
+    parameter DMEM_FILE = ""      // SoC sets the firmware image; bare-CPU tests leave empty
+) (
       input clk,
-      input reset
+      input reset,
+
+      // ---- peripheral bus (to SoC slaves: UART/TIMER/GPIO) ----
+      output [31:0] pbus_addr,
+      output [31:0] pbus_wdata,
+      output [3:0]  pbus_wen,
+      output        pbus_read,
+      input  [31:0] pbus_rdata,
+      // ---- machine timer interrupt pending (from SoC CLINT) ----
+      input         mtip
   );
 wire stall,bubble;
 wire trap_valid;
@@ -111,6 +121,7 @@ exec_stage u_exec(
     .id_ex_is_ebreak(id_ex_is_ebreak),
     .id_ex_is_mret(id_ex_is_mret),
     .id_ex_illegal(id_ex_illegal),
+    .mtip(mtip),
     .redirect_valid(redirect_valid),
     .redirect_target(redirect_target),
     .id_ex_rs1_addr(id_ex_rs1_addr),
@@ -136,7 +147,7 @@ wire [4:0]  mem_wb_rd;
 wire mem_wb_jump,mem_wb_mem_read,mem_wb_reg_write;
 wire [1:0] mem_wb_ld_lsb;
 wire [2:0] mem_wb_ld_funct3;
-mem_stage u_mem(
+mem_stage #(.DMEM_FILE(DMEM_FILE)) u_mem(
     .clk(clk),
     .reset(reset),
     .stall(1'b0), // phase-C: MEM gains real stall on cache miss — see roadmap
@@ -160,7 +171,14 @@ mem_stage u_mem(
     .mem_wb_mem_read(mem_wb_mem_read),
     .mem_wb_reg_write(mem_wb_reg_write),
     .mem_wb_ld_lsb(mem_wb_ld_lsb),
-    .mem_wb_ld_funct3(mem_wb_ld_funct3)
+    .mem_wb_ld_funct3(mem_wb_ld_funct3),
+
+      // ---- peripheral bus ----
+    .pbus_addr(pbus_addr),
+    .pbus_wdata(pbus_wdata),
+    .pbus_wen(pbus_wen),
+    .pbus_read(pbus_read),
+    .pbus_rdata(pbus_rdata)
   );
 
 wb_stage u_wb(

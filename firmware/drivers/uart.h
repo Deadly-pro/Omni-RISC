@@ -1,10 +1,11 @@
 // Omni-RISC APU — uart driver header
-// TODO: Implement
 #ifndef UART_H
 #define UART_H
 
 #include <stdint.h>
 
-// TODO: Add function prototypes
+void uart_init(void);
+void uart_putc(char c);
+void uart_puts(const char *s);
 
 #endif

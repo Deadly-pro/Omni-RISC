@@ -50,6 +50,7 @@ Thumbs.db
 .idea/
 resume.pdf
 program.hex
+*.hex
 
 # Compliance
 tests/riscv-arch-test/          # cloned by tests/run_compliance.sh

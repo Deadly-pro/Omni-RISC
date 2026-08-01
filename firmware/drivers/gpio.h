@@ -1,10 +1,10 @@
 // Omni-RISC APU — gpio driver header
-// TODO: Implement
 #ifndef GPIO_H
 #define GPIO_H
 
 #include <stdint.h>
 
-// TODO: Add function prototypes
+void gpio_write(uint8_t val);
+uint8_t gpio_read(void);
 
 #endif

@@ -1,2 +1,5 @@
 // Omni-RISC APU — hello
-// TODO: Implement
+// Boot already prints the banner via UART; nothing more to do here.
+void app_main(void) {
+    while (1);
+}

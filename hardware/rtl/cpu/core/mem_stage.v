@@ -1,4 +1,6 @@
-module mem_stage (
+module mem_stage #(
+    parameter DMEM_FILE = ""          // SoC sets the firmware image; bare-CPU tests leave empty
+) (
       input         clk,
       input         reset,
       input         stall,
@@ -16,21 +18,35 @@ module mem_stage (
 
       // ---- MEM/WB bundle out ----
       output reg [31:0] mem_wb_alu_result,
-      output [31:0] mem_wb_rdata, 
+      output reg [31:0] mem_wb_rdata,
       output reg [4:0]  mem_wb_rd,
       output reg [31:0] mem_wb_pc_plus4,
       output reg        mem_wb_jump,
       output reg        mem_wb_mem_read,    // WB's mux select for load_data
       output reg        mem_wb_reg_write,
       output reg [1:0] mem_wb_ld_lsb,
-      output reg [2:0] mem_wb_ld_funct3
+      output reg [2:0] mem_wb_ld_funct3,
+
+      // ---- peripheral bus (SoC slaves: UART/TIMER/GPIO) ----
+      output [31:0] pbus_addr,      // raw address (ex_mem_alu_result)
+      output [31:0] pbus_wdata,     // lane-aligned write data (from LSU)
+      output [3:0]  pbus_wen,       // per-byte write enables (from LSU)
+      output        pbus_read,      // ex_mem_mem_read
+      input  [31:0] pbus_rdata      // muxed read data from the SoC decoder
   );
   wire [31:0] dmem_addr, dmem_wdata, dmem_rdata;
   wire [3:0]  dmem_wen;
-  
+
+  // data_bram owns the 0x00000000..0x0003FFFF window; everything above is a
+  // peripheral access routed on pbus. Gate the BRAM so peripheral addresses
+  // don't alias into it.
+  wire data_cs = ex_mem_alu_result < 32'h0004_0000;
+  wire [3:0] dmem_wen_gated = data_cs ? dmem_wen : 4'b0;
+
 always @(posedge clk)begin
 if (reset)begin
     mem_wb_alu_result <= 32'b0;
+    mem_wb_rdata      <= 32'b0;
     mem_wb_rd <= 5'b0;
     mem_wb_pc_plus4 <= 32'b0;
     mem_wb_jump <= 1'b0;
@@ -38,9 +54,10 @@ if (reset)begin
     mem_wb_reg_write <= 1'b0;
     mem_wb_ld_lsb    <= 2'b00;
     mem_wb_ld_funct3 <= 3'b000;
-    end 
+    end
 else if (!stall) begin
     mem_wb_alu_result <= ex_mem_alu_result;
+    mem_wb_rdata      <= data_cs ? dmem_rdata : pbus_rdata;
     mem_wb_rd <= ex_mem_rd;
     mem_wb_pc_plus4 <= ex_mem_pc_plus4;
     mem_wb_jump <= ex_mem_jump;
@@ -56,8 +73,13 @@ lsu u_lsu(
       .funct3(ex_mem_funct3), .mem_write(ex_mem_mem_write),
       .dmem_addr(dmem_addr), .dmem_wdata(dmem_wdata), .dmem_wen(dmem_wen)
   );
-  data_bram u_dbram(
+  data_bram #(.MemFile(DMEM_FILE)) u_dbram(
       .clk(clk), .addr(dmem_addr), .wdata(dmem_wdata),
-      .wen(dmem_wen), .rdata(mem_wb_rdata)
+      .wen(dmem_wen_gated), .rdata(dmem_rdata)
   );
+
+  assign pbus_addr  = ex_mem_alu_result;
+  assign pbus_wdata = dmem_wdata;
+  assign pbus_wen   = dmem_wen;
+  assign pbus_read  = ex_mem_mem_read;
 endmodule

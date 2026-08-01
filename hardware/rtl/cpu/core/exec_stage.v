@@ -25,6 +25,7 @@ module exec_stage (
      input         id_ex_is_ebreak,    // to trap_unit
      input         id_ex_is_mret,      // to trap_unit
      input         id_ex_illegal,      // to trap_unit
+     input         mtip,               // machine timer interrupt pending (from SoC)
      // ---- forwarding inputs ----
      input  [4:0]  id_ex_rs1_addr,     // NEW — match key
      input  [4:0]  id_ex_rs2_addr,     // NEW — match key
@@ -89,7 +90,7 @@ branch_unit branch_unit1(
 );
 wire [31:0] csr_rdata;
 wire        csr_illegal;
-wire [31:0] csr_mtvec_o, csr_mepc_o, csr_mstatus_o;
+wire [31:0] csr_mtvec_o, csr_mepc_o, csr_mstatus_o, csr_mie_o, csr_mip_o;
 wire        trap_taken, trap_mret;
 wire [31:0] trap_pc, trap_cause, trap_tval;
 csr_file csr_file1(
@@ -107,9 +108,12 @@ csr_file csr_file1(
     .trap_cause(trap_cause),
     .trap_tval(trap_tval),
     .mret(trap_mret),
+    .mtip(mtip),
     .mtvec_o(csr_mtvec_o),
     .mepc_o(csr_mepc_o),
-    .mstatus_o(csr_mstatus_o)
+    .mstatus_o(csr_mstatus_o),
+    .mie_o(csr_mie_o),
+    .mip_o(csr_mip_o)
 );
 trap_unit trap1(
     .id_ex_is_ecall(id_ex_is_ecall),
@@ -121,6 +125,9 @@ trap_unit trap1(
     .id_ex_pc(id_ex_pc),
     .mtvec(csr_mtvec_o),
     .mepc(csr_mepc_o),
+    .mstatus_mie(csr_mstatus_o[3]),
+    .mie_mtie(csr_mie_o[7]),
+    .mip_mtip(csr_mip_o[7]),
     .trap_valid(trap_valid),
     .trap_target(trap_target),
     .trap_pc(trap_pc),
