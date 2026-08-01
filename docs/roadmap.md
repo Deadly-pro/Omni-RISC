@@ -81,7 +81,12 @@ Both cache MODULES are implemented and verified standalone:
 
 The caches are wired into the pipeline behind a `USE_CACHES` parameter (default 0, so `tb_cpu_top` 83/83 and compliance 53/54 run the cacheless CPU untouched). The SoC still runs `USE_CACHES=0`.
 
-**Known limitation:** `USE_CACHES=1` has a residual fetch-pairing bug on *concurrent* I/D-cache refills (a D-cache store refill freezes the pipeline while the I-cache presents a fetch-ahead line to a still-held IF/ID, corrupting the instruction/pc pair). The firmware's `main` (jal after a stack store) mis-executes. Three fixes are in (icache holds `rdata` across a freeze via `fetch_en`, `exec` holds during any refill, no COMPLETE-state overwrite), but the concurrent-refill case needs a proper IF/ID instruction register (register `if_id_instr` with `if_id_pc`) to fully close. Fix that, then flip the SoC to `USE_CACHES=1` and measure CPI before/after (the Phase-C done-when).
+**FIXED (this commit):** the concurrent I/D-cache refill fetch-pairing bug. The fix registers the IF/ID instruction together with its pc:
+- fetch_stage: on redirect/trap, captures `redirect_target`/`trap_target` directly into `if_id_pc` (not the lagging `pc`), AND feeds the same target address to the icache so its `rdata` matches.
+- l1_icache: accepts `pc` = redirect_target during redirects via fetch_stage's `ic_pc` mux.
+- New focused test `tb_2store.cpp` validates the 2-store+JAL pattern that previously corrupted.
+
+**Verified:** tb_cpu_top 83/83, compliance 53/54, tb_cache 14/14, tb_icache 27/27, tb_soc_uart PASS, tb_soc_timer PASS, tb_2store PASS.
 
 ## Phase D — 2-core coherent CPU  *(STRETCH — the fine-grained coherence)*
 - **D1.** Replicate the core → 2 cores on a shared bus.

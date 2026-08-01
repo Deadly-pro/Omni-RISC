@@ -23,7 +23,12 @@ module fetch_stage #(
     output [31:0] if_id_instr,
     output icache_miss
 );
-reg flush;
+// flush_q latches a redirect/trap; flush stays high while the redirect is
+// STILL active (a branch held in EX by a cache refill keeps redirect_valid=1)
+// plus one cycle after, so a wrong-path instruction stranded in IF/ID across a
+// multi-cycle freeze cannot come back and retire after the 1-cycle NOP clears.
+reg flush_q;
+wire flush = reset || redirect_valid || trap_valid || flush_q;
 wire [31:0] pc,pc_plus4;
 pc_gen pc_gen1(.clk(clk),
 .reset(reset),
@@ -55,9 +60,17 @@ generate
     if (USE_CACHES) begin : g_icache
         wire [31:0] ic_addr, ic_rdata;
         wire        ic_req, ic_ack;
+        // During redirect/trap, icache must present the target's line, not the
+        // fetch-ahead pc's line. Redirect_valid is combinational from EX, so
+        // ic_pc = redirect_valid ? redirect_target : (trap_valid ? trap_target : pc)
+        wire [31:0] ic_pc = redirect_valid ? redirect_target : (trap_valid ? trap_target : pc);
         l1_icache u_icache(
             .clk(clk), .reset(reset),
-            .pc(pc), .fetch_en(!stall), .rdata(ic_rdata), .miss(icache_miss),
+            // fetch_en = !stall | redirect | trap: a redirect advances IF/ID to the
+            // target even during a cache-refill freeze, so the icache must present
+            // the target's line too (else IF/ID pairs the target pc with stale rdata)
+            .pc(ic_pc), .fetch_en(!stall | redirect_valid | trap_valid),
+            .rdata(ic_rdata), .miss(icache_miss),
             .mem_addr(ic_addr), .mem_rdata(imem_rdata),
             .mem_read_req(ic_req), .mem_read_ack(ic_ack)
         );
@@ -78,11 +91,24 @@ generate
 endgenerate
 
 always @(posedge clk)begin
-if(!stall)begin
+// a redirect/trap wins over any freeze: the fetch-ahead wrong-path must not
+// stay stranded in IF/ID across a multi-cycle cache refill, or it comes back
+// and retires after the flush NOP clears
+// pc_gen's pc updates ONE CYCLE LATE after redirect_valid, so capture the
+// redirect_target directly to avoid pairing fetch-ahead pc with target instr
+if(redirect_valid)begin
+    if_id_pc<=redirect_target;
+    if_id_pc_plus4<=redirect_target+4;
+    end
+else if(trap_valid)begin
+    if_id_pc<=trap_target;
+    if_id_pc_plus4<=trap_target+4;
+    end
+else if(!stall)begin
     if_id_pc<=pc;
     if_id_pc_plus4<=pc_plus4;
     end
-    flush<=reset||redirect_valid||trap_valid;
+    flush_q<=reset||redirect_valid||trap_valid;
 end
 assign if_id_instr=flush?32'h0000_0013:fetched;
 endmodule
