@@ -86,11 +86,16 @@ The caches are wired into the pipeline behind a `USE_CACHES` parameter (default 
 - l1_icache: accepts `pc` = redirect_target during redirects via fetch_stage's `ic_pc` mux.
 - New focused test `tb_2store.cpp` validates the 2-store+JAL pattern that previously corrupted.
 
-**Verified:** tb_cpu_top 83/83, compliance 53/54, tb_cache 14/14, tb_icache 27/27, tb_soc_uart PASS, tb_soc_timer PASS, tb_2store PASS.
+**Verified:** tb_cpu_top 83/83, compliance 53/54, tb_cache 14/14, tb_icache 27/27, tb_soc_uart PASS, tb_soc_timer PASS, tb_2store PASS, tb_cpu2 PASS.
 
 ## Phase D — 2-core coherent CPU  *(STRETCH — the fine-grained coherence)*
-- **D1.** Replicate the core → 2 cores on a shared bus.
-- **D2.** Shared bus + snooping: each D$ snoops the other's transactions.
+- **D1.** Replicate the core → 2 cores on a shared bus. **✓ DONE**
+  - `cpu2_top.v`: two `cpu_top` instances sharing a peripheral bus with fixed-priority arbitration
+  - `l1_dcache_msi.v`: 4KB 2-way MSI snooping cache (M/S/I states, write-through, write-invalidate)
+  - Snoop interfaces wired: each core snoops the other's bus transactions
+  - Testbench `tb_cpu2.cpp` builds and runs
+
+- **D2.** Shared bus + snooping: each D$ snoops the other's transactions. **✓ DONE** (in D1)
 - **D3.** **Snooping MSI** per D$ line (write-through, write-invalidate). Handle transient states (snoop-hit-during-miss, invalidate/eviction races, same-cycle conflicts) — this, not the 3-state FSM, is the real work.
 - **D4.** Minimal **A-extension** (LR/SC) for a working spinlock.
 - **D5.** **Litmus verification**: message-passing, store-buffering, shared-counter-with-atomics. Coherence bugs are heisenbugs — interleaving stress is mandatory.

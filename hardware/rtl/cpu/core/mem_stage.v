@@ -36,9 +36,16 @@ module mem_stage #(
       input  [31:0] pbus_rdata,     // muxed read data from the SoC decoder
 
       // ---- L1 D-cache freeze ----
-      output        mem_stall       // 1 = a cache op is pending → freeze the pipeline
+      output        mem_stall,       // 1 = a cache op is pending → freeze the pipeline
+
+      // ---- snoop interface (for dual-core MSI coherence) ----
+      input  [31:0] snoop_addr,
+      input         snoop_read,
+      input         snoop_write,
+      output        snoop_ack
   );
-  wire [31:0] dmem_addr, dmem_wdata, dmem_rdata;
+  wire [31:0] dmem_addr, dmem_wdata_cpu, dmem_rdata;
+wire [31:0] dmem_wdata_mem;   // write data from cache to data_bram
   wire [3:0]  dmem_wen;
 
   // data_bram decodes addr[17:2] (256KB, aliased every 256KB). The pbus slaves
@@ -58,16 +65,16 @@ module mem_stage #(
   lsu u_lsu(
       .addr(ex_mem_alu_result), .store_data(ex_mem_store_data),
       .funct3(ex_mem_funct3), .mem_write(ex_mem_mem_write),
-      .dmem_addr(dmem_addr), .dmem_wdata(dmem_wdata), .dmem_wen(dmem_wen)
+      .dmem_addr(dmem_addr), .dmem_wdata(dmem_wdata_cpu), .dmem_wen(dmem_wen)
   );
   data_bram #(.MemFile(DMEM_FILE)) u_dbram(
-      .clk(clk), .addr(dbram_addr), .wdata(dmem_wdata),
+      .clk(clk), .addr(dbram_addr), .wdata(dmem_wdata_cpu),
       .wen(dbram_wen), .rdata(dmem_rdata)
   );
 
   generate
     if (USE_CACHES) begin : g_dcache
-      // ---- L1 D-cache: refills from data_bram (0-latency comb read, so ack =
+      // ---- L1 D-cache with MSI snooping: refills from data_bram (0-latency comb read, so ack =
       // request), write-through reaches data_bram via a ONE-SHOT direct store
       // (the cache's own memory interface has no write path) ----
       reg issue_done;             // the cache op has been presented to the cache
@@ -75,17 +82,22 @@ module mem_stage #(
       wire [31:0] dc_rdata;
       wire [31:0] dc_mem_addr;
       wire        dc_mem_req, dc_mem_ack;
+      wire        dc_mem_write_req, dc_mem_write_ack;
 
-      l1_dcache u_dcache(
+      l1_dcache_msi u_dcache(
           .clk(clk), .reset(reset),
-          .addr(dmem_addr), .wdata(dmem_wdata), .byte_en(dmem_wen),
+          .addr(dmem_addr), .wdata(dmem_wdata_cpu), .byte_en(dmem_wen),
           .read_en(is_cache_op & ~issue_done & ex_mem_mem_read),
           .write_en(is_cache_op & ~issue_done & ex_mem_mem_write),
           .rdata(dc_rdata), .hit(dc_hit), .miss(dc_miss), .ready(dc_ready),
           .mem_addr(dc_mem_addr), .mem_rdata(dmem_rdata),
-          .mem_read_req(dc_mem_req), .mem_read_ack(dc_mem_ack)
+          .mem_read_req(dc_mem_req), .mem_read_ack(dc_mem_ack),
+          .mem_write_req(dc_mem_write_req), .mem_wdata(dmem_wdata_mem), .mem_write_ack(dc_mem_write_ack),
+          .snoop_addr(snoop_addr), .snoop_read(snoop_read), .snoop_write(snoop_write),
+          .snoop_ack(snoop_ack)
       );
       assign dc_mem_ack = dc_mem_req;      // data_bram read is combinational
+      assign dc_mem_write_ack = dc_mem_write_req; // data_bram write is combinational
 
       // issue the request once, hold until the cache reports ready
       always @(posedge clk) begin
@@ -113,7 +125,7 @@ module mem_stage #(
   // pbus writes only ever target peripherals (a data-window store is the
   // cache's business); gating keeps the slaves from seeing cache-op writes
   assign pbus_addr  = ex_mem_alu_result;
-  assign pbus_wdata = dmem_wdata;
+  assign pbus_wdata = dmem_wdata_cpu;
   assign pbus_wen   = data_cs ? 4'b0 : dmem_wen;
   assign pbus_read  = ex_mem_mem_read;
 

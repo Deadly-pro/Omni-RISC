@@ -13,7 +13,12 @@ module cpu_top #(
       output        pbus_read,
       input  [31:0] pbus_rdata,
       // ---- machine timer interrupt pending (from SoC CLINT) ----
-      input         mtip
+      input         mtip,
+      // ---- snoop interface (for dual-core MSI coherence) ----
+      input  [31:0] snoop_addr,
+      input         snoop_read,
+      input         snoop_write,
+      output        snoop_ack
   );
 wire stall,bubble;
 wire trap_valid;
@@ -189,7 +194,13 @@ mem_stage #(.DMEM_FILE(DMEM_FILE), .USE_CACHES(USE_CACHES)) u_mem(
     .pbus_rdata(pbus_rdata),
 
       // ---- L1 D-cache freeze ----
-    .mem_stall(mem_stall)
+    .mem_stall(mem_stall),
+
+      // ---- snoop interface ----
+    .snoop_addr(snoop_addr),
+    .snoop_read(snoop_read),
+    .snoop_write(snoop_write),
+    .snoop_ack(snoop_ack)
   );
 
 wb_stage u_wb(
