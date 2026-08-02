@@ -1,6 +1,8 @@
 module mem_stage #(
     parameter DMEM_FILE = "",          // SoC sets the firmware image; bare-CPU tests leave empty
-    parameter USE_CACHES = 0           // 0 = direct data_bram (pre-Phase-C), 1 = L1 D-cache
+    parameter USE_CACHES = 0,          // 0 = direct data_bram (pre-Phase-C), 1 = L1 D-cache
+    parameter SHARED_MEM = 0           // 1 = dcache backing memory is external (dual-core);
+                                       //     implies USE_CACHES=1
 ) (
       input         clk,
       input         reset,
@@ -44,10 +46,21 @@ module mem_stage #(
       input  [31:0] snoop_addr,
       input         snoop_read,
       input         snoop_write,
-      output        snoop_ack
+      output        snoop_ack,
+
+      // ---- shared backing memory interface (SHARED_MEM=1 only) ----
+      // the dcache refills / write-throughs via these ports to a shared data_bram
+      // owned by dual_core_top; when SHARED_MEM=0 they are unused
+      output [31:0] mem_if_addr,
+      input  [31:0] mem_if_rdata,
+      output        mem_if_read_req,
+      input         mem_if_read_ack,
+      output        mem_if_write_req,
+      output [31:0] mem_if_wdata,
+      input         mem_if_write_ack
   );
   wire [31:0] dmem_addr, dmem_wdata_cpu, dmem_rdata;
-wire [31:0] dmem_wdata_mem;   // write data from cache to data_bram
+  wire [31:0] dmem_wdata_mem;   // write data from cache to backing memory
   wire [3:0]  dmem_wen;
 
   // data_bram decodes addr[17:2] (256KB, aliased every 256KB). The pbus slaves
@@ -58,7 +71,7 @@ wire [31:0] dmem_wdata_mem;   // write data from cache to data_bram
                  ((ex_mem_alu_result >= 32'h0010_0000) && (ex_mem_alu_result < 32'h0014_0000));
   wire is_cache_op = data_cs & (ex_mem_mem_read | ex_mem_mem_write);
 
-  // data_bram glue (addr/wen differ per cache config; wdata is always the LSU's)
+  // backing memory glue (addr/wen differ per cache config; wdata is the LSU's)
   wire [31:0] dbram_addr;
   wire [3:0]  dbram_wen;
   wire [31:0] load_rdata;    // value mem_wb_rdata captures
@@ -69,16 +82,20 @@ wire [31:0] dmem_wdata_mem;   // write data from cache to data_bram
       .funct3(ex_mem_funct3), .mem_write(ex_mem_mem_write),
       .dmem_addr(dmem_addr), .dmem_wdata(dmem_wdata_cpu), .dmem_wen(dmem_wen)
   );
+
+  // Backing data memory. Always instantiated (so the tb_cpu_top / compliance
+  // harnesses can peek u_mem->u_dbram->mem); in SHARED_MEM mode the internal
+  // bram is unused (dcache refills/write-throughs via the external mem_if_*).
+  wire [31:0] bram_rdata;
   data_bram #(.MemFile(DMEM_FILE)) u_dbram(
       .clk(clk), .addr(dbram_addr), .wdata(dmem_wdata_cpu),
-      .wen(dbram_wen), .rdata(dmem_rdata)
+      .wen(dbram_wen), .rdata(bram_rdata)
   );
+  assign dmem_rdata = SHARED_MEM ? mem_if_rdata : bram_rdata;
 
   generate
     if (USE_CACHES) begin : g_dcache
-      // ---- L1 D-cache with MSI snooping: refills from data_bram (0-latency comb read, so ack =
-      // request), write-through reaches data_bram via a ONE-SHOT direct store
-      // (the cache's own memory interface has no write path) ----
+      // ---- L1 D-cache with MSI snooping ----
       reg issue_done;             // the cache op has been presented to the cache
       wire dc_hit, dc_miss, dc_ready;
       wire [31:0] dc_rdata;
@@ -89,7 +106,10 @@ wire [31:0] dmem_wdata_mem;   // write data from cache to data_bram
       l1_dcache_msi u_dcache(
           .clk(clk), .reset(reset),
           .addr(dmem_addr), .wdata(dmem_wdata_cpu), .byte_en(dmem_wen),
-          .read_en(is_cache_op & ~issue_done & ex_mem_mem_read),
+          // SC.W has ex_mem_mem_read=1 (its result rides the load path to WB),
+          // but the CACHE must see it as write-only, else CHECK's
+          // `read_en | write_en` re-enter never resolves the SC.
+          .read_en(is_cache_op & ~issue_done & ex_mem_mem_read & ~ex_mem_is_sc),
           .write_en(is_cache_op & ~issue_done & ex_mem_mem_write),
           .is_lr(is_cache_op & ~issue_done & ex_mem_mem_read & ex_mem_is_lr),
           .is_sc(is_cache_op & ~issue_done & ex_mem_mem_write & ex_mem_is_sc),
@@ -100,8 +120,32 @@ wire [31:0] dmem_wdata_mem;   // write data from cache to data_bram
           .snoop_addr(snoop_addr), .snoop_read(snoop_read), .snoop_write(snoop_write),
           .snoop_ack(snoop_ack)
       );
-      assign dc_mem_ack = dc_mem_req;      // data_bram read is combinational
-      assign dc_mem_write_ack = dc_mem_write_req; // data_bram write is combinational
+
+      if (SHARED_MEM) begin : g_dc_shared
+        // backing memory is external: expose the dcache memory ports directly
+        assign mem_if_addr      = dc_mem_addr;
+        assign mem_if_read_req  = dc_mem_req;
+        assign dc_mem_ack       = mem_if_read_ack;
+        assign mem_if_write_req = dc_mem_write_req;
+        assign mem_if_wdata     = dmem_wdata_mem;
+        assign dc_mem_write_ack = mem_if_write_ack;
+        assign dbram_addr       = 32'b0;
+        assign dbram_wen        = 4'b0;
+      end else begin : g_dc_internal
+        // backing memory is the internal data_bram (combinational read/write)
+        assign dc_mem_ack       = dc_mem_req;
+        assign dc_mem_write_ack = dc_mem_write_req;
+        assign mem_if_addr      = 32'b0;
+        assign mem_if_read_req  = 1'b0;
+        assign mem_if_write_req = 1'b0;
+        assign mem_if_wdata     = 32'b0;
+        // refill reads AND cache write-through (SC.W / write-allocate) take the
+        // cache's address; otherwise the LSU's address
+        assign dbram_addr = (dc_mem_req | dc_mem_write_req) ? dc_mem_addr : dmem_addr;
+        // cache write-through is a full-word store; LSU writes use byte enables
+        assign dbram_wen  = dc_mem_write_req ? 4'b1111
+                                             : (dmem_wen & {4{data_cs & ~issue_done}});
+      end
 
       // issue the request once, hold until the cache reports ready
       always @(posedge clk) begin
@@ -113,17 +157,15 @@ wire [31:0] dmem_wdata_mem;   // write data from cache to data_bram
 
       assign mem_hold    = is_cache_op & ~dc_ready;
       assign load_rdata  = data_cs ? dc_rdata : pbus_rdata;
-      // refill reads AND cache write-through (SC.W / write-allocate) take the
-      // cache's address; otherwise the LSU's address
-      assign dbram_addr  = (dc_mem_req | dc_mem_write_req) ? dc_mem_addr : dmem_addr;
-      // cache write-through is a full-word store; LSU writes use its byte enables
-      assign dbram_wen   = dc_mem_write_req ? 4'b1111
-                                            : (dmem_wen & {4{data_cs & ~issue_done}});
     end else begin : g_nocache
       assign mem_hold    = 1'b0;
       assign load_rdata  = data_cs ? dmem_rdata : pbus_rdata;
       assign dbram_addr  = dmem_addr;
       assign dbram_wen   = data_cs ? dmem_wen : 4'b0;
+      assign mem_if_addr      = 32'b0;
+      assign mem_if_read_req  = 1'b0;
+      assign mem_if_write_req = 1'b0;
+      assign mem_if_wdata     = 32'b0;
     end
   endgenerate
 

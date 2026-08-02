@@ -1,7 +1,8 @@
 // Omni-RISC APU — CPU: cpu_top
 module cpu_top #(
     parameter DMEM_FILE = "",      // SoC sets the firmware image; bare-CPU tests leave empty
-    parameter USE_CACHES = 0       // 0 = direct BRAMs (tb_cpu_top/compliance), 1 = L1 caches (SoC)
+    parameter USE_CACHES = 0,      // 0 = direct BRAMs (tb_cpu_top/compliance), 1 = L1 caches (SoC)
+    parameter SHARED_MEM = 0       // 1 = dcache backing memory external (dual-core)
 ) (
       input clk,
       input reset,
@@ -18,7 +19,15 @@ module cpu_top #(
       input  [31:0] snoop_addr,
       input         snoop_read,
       input         snoop_write,
-      output        snoop_ack
+      output        snoop_ack,
+      // ---- shared backing memory interface (SHARED_MEM=1 only) ----
+      output [31:0] mem_if_addr,
+      input  [31:0] mem_if_rdata,
+      output        mem_if_read_req,
+      input         mem_if_read_ack,
+      output        mem_if_write_req,
+      output [31:0] mem_if_wdata,
+      input         mem_if_write_ack
   );
 wire stall,bubble;
 wire trap_valid;
@@ -48,6 +57,7 @@ wire wb_reg_write;
 wire [31:0] id_ex_pc,id_ex_pc_plus4,id_ex_rs1_data,id_ex_rs2_data,id_ex_imm;
 wire [4:0]  id_ex_rd,id_ex_rs1_addr,id_ex_rs2_addr;   
 wire id_ex_is_mul_div;
+wire        id_ex_is_atomic;   // A-extension LR/SC
 wire [3:0]  id_ex_alu_op;
 wire [1:0]  id_ex_op_type;
 wire [2:0]  id_ex_funct3;
@@ -87,6 +97,7 @@ decode_stage u_decode(
     .id_ex_mem_read(id_ex_mem_read),
     .id_ex_mem_write(id_ex_mem_write),
     .id_ex_is_mul_div(id_ex_is_mul_div),
+    .id_ex_is_atomic(id_ex_is_atomic),
     .id_ex_is_csr(id_ex_is_csr),
     .id_ex_is_ecall(id_ex_is_ecall),
     .id_ex_is_ebreak(id_ex_is_ebreak),
@@ -105,8 +116,9 @@ hazard_unit u_hazard(
   );
  wire [31:0] ex_mem_alu_result,ex_mem_store_data,ex_mem_pc_plus4;
  wire [4:0]  ex_mem_rd;
- wire [2:0]  ex_mem_funct3;   
+ wire [2:0]  ex_mem_funct3;
  wire ex_mem_jump,ex_mem_reg_write,ex_mem_mem_read,ex_mem_mem_write;
+ wire ex_mem_is_lr, ex_mem_is_sc;
  
 exec_stage u_exec(
     .clk(clk),
@@ -140,6 +152,7 @@ exec_stage u_exec(
     .id_ex_rs1_addr(id_ex_rs1_addr),
     .id_ex_rs2_addr(id_ex_rs2_addr),
     .id_ex_is_mul_div(id_ex_is_mul_div),
+    .id_ex_is_atomic(id_ex_is_atomic),
     .mem_wb_rd(mem_wb_rd),
     .mem_wb_reg_write(mem_wb_reg_write),
     .wb_rd_data(wb_rd_data),
@@ -152,6 +165,8 @@ exec_stage u_exec(
     .ex_mem_reg_write(ex_mem_reg_write),
     .ex_mem_mem_read(ex_mem_mem_read),
     .ex_mem_mem_write(ex_mem_mem_write),
+    .ex_mem_is_lr(ex_mem_is_lr),
+    .ex_mem_is_sc(ex_mem_is_sc),
     .trap_valid(trap_valid),
     .trap_target(trap_target)
 );
@@ -160,7 +175,7 @@ wire [4:0]  mem_wb_rd;
 wire mem_wb_jump,mem_wb_mem_read,mem_wb_reg_write;
 wire [1:0] mem_wb_ld_lsb;
 wire [2:0] mem_wb_ld_funct3;
-mem_stage #(.DMEM_FILE(DMEM_FILE), .USE_CACHES(USE_CACHES)) u_mem(
+mem_stage #(.DMEM_FILE(DMEM_FILE), .USE_CACHES(USE_CACHES), .SHARED_MEM(SHARED_MEM)) u_mem(
     .clk(clk),
     .reset(reset),
     .stall(1'b0), // MEM holds itself via mem_stall while a cache op is pending
@@ -174,6 +189,8 @@ mem_stage #(.DMEM_FILE(DMEM_FILE), .USE_CACHES(USE_CACHES)) u_mem(
     .ex_mem_reg_write(ex_mem_reg_write),
     .ex_mem_mem_read(ex_mem_mem_read),
     .ex_mem_mem_write(ex_mem_mem_write),
+    .ex_mem_is_lr(ex_mem_is_lr),
+    .ex_mem_is_sc(ex_mem_is_sc),
 
       // ---- MEM/WB bundle out ----
     .mem_wb_alu_result(mem_wb_alu_result),
@@ -200,7 +217,16 @@ mem_stage #(.DMEM_FILE(DMEM_FILE), .USE_CACHES(USE_CACHES)) u_mem(
     .snoop_addr(snoop_addr),
     .snoop_read(snoop_read),
     .snoop_write(snoop_write),
-    .snoop_ack(snoop_ack)
+    .snoop_ack(snoop_ack),
+
+      // ---- shared backing memory interface ----
+    .mem_if_addr(mem_if_addr),
+    .mem_if_rdata(mem_if_rdata),
+    .mem_if_read_req(mem_if_read_req),
+    .mem_if_read_ack(mem_if_read_ack),
+    .mem_if_write_req(mem_if_write_req),
+    .mem_if_wdata(mem_if_wdata),
+    .mem_if_write_ack(mem_if_write_ack)
   );
 
 wb_stage u_wb(

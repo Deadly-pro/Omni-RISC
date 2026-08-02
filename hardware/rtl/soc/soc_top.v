@@ -29,6 +29,10 @@ module soc_top (
     // SoC pipeline integration still has a fetch-pairing bug on concurrent
     // cache refills (documented in docs/roadmap.md), so the SoC runs the
     // cacheless CPU until that is resolved.
+    wire snoop_ack_unused;
+    wire mem_if_read_ack_unused, mem_if_write_ack_unused;
+    wire [31:0] mem_if_addr_unused, mem_if_wdata_unused;
+    wire        mem_if_read_req_unused, mem_if_write_req_unused;
     cpu_top #(.DMEM_FILE("program.hex"), .USE_CACHES(0)) u_cpu(
         .clk(clk),
         .reset(reset),
@@ -37,7 +41,18 @@ module soc_top (
         .pbus_wen(pbus_wen),
         .pbus_read(pbus_read),
         .pbus_rdata(pbus_rdata),
-        .mtip(mtip)
+        .mtip(mtip),
+        .snoop_addr(32'b0),
+        .snoop_read(1'b0),
+        .snoop_write(1'b0),
+        .snoop_ack(snoop_ack_unused),
+        .mem_if_addr(mem_if_addr_unused),
+        .mem_if_rdata(32'b0),
+        .mem_if_read_req(mem_if_read_req_unused),
+        .mem_if_read_ack(mem_if_read_ack_unused),
+        .mem_if_write_req(mem_if_write_req_unused),
+        .mem_if_wdata(mem_if_wdata_unused),
+        .mem_if_write_ack(mem_if_write_ack_unused)
     );
 
     uart u_uart(

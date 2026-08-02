@@ -114,7 +114,14 @@ always @(*)begin
         is_atomic=1;
         case ({instruction[31:27], funct3})
             8'b00010_010: mem_read=1;   // LR.W is a load
-            8'b00011_010: mem_write=1;  // SC.W is a store
+            8'b00011_010: begin
+                // SC.W is a store but RETURNS a result (0=success/1=fail) like a
+                // load, so mem_read=1 makes the hazard unit stall any consumer
+                // (else EX/MEM forwarding gives the ALU result, not the SC result).
+                // The dcache's read_en excludes SC (mem_stage gates ~is_sc).
+                mem_read=1;
+                mem_write=1;
+            end
             default: illegal_instr=1;
         endcase
     end

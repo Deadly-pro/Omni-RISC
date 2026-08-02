@@ -96,10 +96,14 @@ The caches are wired into the pipeline behind a `USE_CACHES` parameter (default 
   - Testbench `tb_cpu2.cpp` builds and runs
 
 - **D2.** Shared bus + snooping: each D$ snoops the other's transactions. **✓ DONE** (in D1)
-- **D3.** **Snooping MSI** per D$ line (write-through, write-invalidate). Handle transient states (snoop-hit-during-miss, invalidate/eviction races, same-cycle conflicts) — this, not the 3-state FSM, is the real work.
-- **D4.** Minimal **A-extension** (LR/SC) for a working spinlock.
+- **D3.** **Snooping MSI** per D$ line (write-through, write-invalidate). Handle transient states (snoop-hit-during-miss, invalidate/eviction races, same-cycle conflicts) — this, not the 3-state FSM, is the real work. **✓ DONE**
+- **D4.** Minimal **A-extension** (LR/SC) for a working spinlock. **✓ DONE**
+  - LR.W/SC.W decode → exec → MSI D-cache → WB path verified single-core (`tb_lrsc` 5/5)
+  - Shared-memory dual-core: both L1 D-caches refill/write-through a **single physical data_bram** via a fixed-priority arbiter (`mem_stage SHARED_MEM`, `dual_core_top`)
+  - MSI snooping watches the other core's **dcache memory transactions** (not pbus)
+  - `tb_dual_spin` (both cores LR/SC a shared lock, increment a counter to 1000): **no lost updates, PASS**
 - **D5.** **Litmus verification**: message-passing, store-buffering, shared-counter-with-atomics. Coherence bugs are heisenbugs — interleaving stress is mandatory.
-- **Done when:** 2 cores share coherent memory, a spinlock is correct, litmus tests pass.
+- **Done when:** 2 cores share coherent memory, a spinlock is correct, litmus tests pass. *(spinlock ✓; D5 litmus pending)*
 
 ## Phase E — SIMT GPU  *(FLOOR)*
 - **E1.** Lane datapath: `gpu_regfile`, `gpu_alu`, `gpu_scratchpad`, `gpu_lsu`.
