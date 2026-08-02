@@ -102,8 +102,13 @@ The caches are wired into the pipeline behind a `USE_CACHES` parameter (default 
   - Shared-memory dual-core: both L1 D-caches refill/write-through a **single physical data_bram** via a fixed-priority arbiter (`mem_stage SHARED_MEM`, `dual_core_top`)
   - MSI snooping watches the other core's **dcache memory transactions** (not pbus)
   - `tb_dual_spin` (both cores LR/SC a shared lock, increment a counter to 1000): **no lost updates, PASS**
-- **D5.** **Litmus verification**: message-passing, store-buffering, shared-counter-with-atomics. Coherence bugs are heisenbugs — interleaving stress is mandatory.
-- **Done when:** 2 cores share coherent memory, a spinlock is correct, litmus tests pass. *(spinlock ✓; D5 litmus pending)*
+- **D5.** **Litmus verification**: message-passing, store-buffering, shared-counter-with-atomics. Coherence bugs are heisenbugs — interleaving stress is mandatory. **✓ DONE**
+  - Fixed two real coherence bugs D5 exposed:
+    - **Snoop starvation**: a core's dcache only captured snoops in IDLE/CHECK and CPU requests beat snoops, so a busy poller never saw the other core's writes. Fix: latch snoops in EVERY state and process them with priority in IDLE.
+    - **Request-pulse loss**: the shared-memory arbiter could defer a core's refill read, missing the 1-cycle request pulse → deadlock. Fix: LEVEL handshake (hold `mem_read_req` until ack).
+  - Message-passing litmus (data must be visible when flag is): **200/200 PASS**
+  - Store-buffering litmus (forbidden both-read-0): **200/200 PASS, no forbidden outcome**
+- **Done when:** 2 cores share coherent memory, a spinlock is correct, litmus tests pass. **✓ DONE** — Phase D complete.
 
 ## Phase E — SIMT GPU  *(FLOOR)*
 - **E1.** Lane datapath: `gpu_regfile`, `gpu_alu`, `gpu_scratchpad`, `gpu_lsu`.

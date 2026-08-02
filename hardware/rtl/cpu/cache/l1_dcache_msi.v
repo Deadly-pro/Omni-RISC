@@ -122,6 +122,17 @@ module l1_dcache_msi (
     reg        snoop_is_read, snoop_is_write;
     reg [2:0]  wb_cnt;                // writeback word counter (0-7)
 
+    // Latched snoop: a 1-cycle snoop from the other core must not be lost while
+    // this cache is busy with its own CPU request (e.g. a poll loop that keeps
+    // the dcache active starves the snoop and breaks message-passing). Capture
+    // it in every state and process it with priority when back in IDLE.
+    reg        snoop_pend;
+    reg        snoop_pend_write;
+    reg        snoop_pend_read;
+    reg        snoop_pend_hit0, snoop_pend_hit1;
+    reg [5:0]  snoop_pend_idx;
+    reg [1:0]  snoop_pend_msi;
+
     // LR/SC reservation tracking
     reg        reservation_valid;     // reservation is active
     reg [31:0] reservation_addr;      // reserved address
@@ -154,6 +165,7 @@ module l1_dcache_msi (
             wb_cnt <= 3'b0;
             reservation_valid <= 1'b0;
             reservation_addr <= 32'b0;
+            snoop_pend <= 1'b0;
             for (k = 0; k < SETS; k = k + 1) begin
                 msi[0][k] <= MSI_I;
                 msi[1][k] <= MSI_I;
@@ -171,29 +183,44 @@ module l1_dcache_msi (
                 req_addr <= addr; req_wdata <= wdata; req_ben <= byte_en;
             end
 
-            // Snoop hit detection (capture on IDLE or when not busy with CPU)
-            if (state == IDLE || state == CHECK) begin
-                snoop_hit <= snoop_hit_any_c;
-                snoop_hit0 <= snoop_hit0_c;
-                snoop_hit1 <= snoop_hit1_c;
-                snoop_idx <= snoop_idx_c;
-                snoop_msi <= snoop_msi_c;
-                snoop_is_read <= snoop_read;
-                snoop_is_write <= snoop_write;
+            // Snoop capture — EVERY state, so a 1-cycle snoop while this cache
+            // is busy (poll loop, refill) is latched and not lost
+            snoop_hit <= snoop_hit_any_c;
+            snoop_hit0 <= snoop_hit0_c;
+            snoop_hit1 <= snoop_hit1_c;
+            snoop_idx <= snoop_idx_c;
+            snoop_msi <= snoop_msi_c;
+            snoop_is_read <= snoop_read;
+            snoop_is_write <= snoop_write;
+
+            if ((snoop_write && snoop_hit_any_c && (snoop_msi_c == MSI_S || snoop_msi_c == MSI_M)) ||
+                (snoop_read  && snoop_hit_any_c && snoop_msi_c == MSI_M)) begin
+                // action needed → latch it as pending
+                snoop_pend       <= 1'b1;
+                snoop_pend_write <= snoop_write;
+                snoop_pend_read  <= snoop_read;
+                snoop_pend_hit0  <= snoop_hit0_c;
+                snoop_pend_hit1  <= snoop_hit1_c;
+                snoop_pend_idx   <= snoop_idx_c;
+                snoop_pend_msi   <= snoop_msi_c;
             end
 
             case (state)
                 IDLE: begin
-                    // Priority: CPU request > snoop
-                    if (req) begin
+                    // Priority: pending snoop > CPU request (a busy poller must
+                    // eventually see the other core's write — that's coherence)
+                    if (snoop_pend) begin
+                        if (snoop_pend_write) begin
+                            state <= SNOOP_INV;
+                        end else if (snoop_pend_read && snoop_pend_msi == MSI_M) begin
+                            wb_cnt <= 3'b0;
+                            state <= SNOOP_WB;
+                        end else begin
+                            snoop_pend <= 1'b0;
+                            state <= IDLE;
+                        end
+                    end else if (req) begin
                         state <= CHECK;
-                    end else if (snoop_read && snoop_hit && snoop_msi == MSI_M) begin
-                        // Other core reads a line we have Modified → must writeback
-                        wb_cnt <= 3'b0;
-                        state <= SNOOP_WB;
-                    end else if (snoop_write && snoop_hit && (snoop_msi == MSI_S || snoop_msi == MSI_M)) begin
-                        // Other core writes a line we have Shared/Modified → invalidate
-                        state <= SNOOP_INV;
                     end
                 end
 
@@ -291,9 +318,14 @@ module l1_dcache_msi (
                 end
 
                 WAITM_RD: begin
+                    // LEVEL handshake: hold mem_read_req until the ack is consumed
+                    // (the shared-memory arbiter may defer us while the other core
+                    // owns the bus — a 1-cycle request pulse would be missed)
+                    mem_read_req <= 1'b1;
                     if (mem_read_ack) begin
                         data[fill_way][req_addr[10:5]][fill_cnt] <= mem_rdata;
                         if (fill_cnt == 3'd7) begin
+                            mem_read_req <= 1'b0;   // refill done — drop the request
                             tag[fill_way][req_addr[10:5]] <= req_addr[31:11];
                             msi[fill_way][req_addr[10:5]] <= MSI_S;  // fresh from memory = Shared
                             last_way <= fill_way;
@@ -323,7 +355,7 @@ module l1_dcache_msi (
                         end else begin
                             fill_cnt <= fill_cnt + 1'b1;
                             mem_addr <= {req_addr[31:5], fill_cnt + 1'b1, 2'b0};
-                            mem_read_req <= 1'b1;
+                            // mem_read_req stays held (set at top of WAITM_RD)
                         end
                     end
                 end
@@ -355,13 +387,14 @@ module l1_dcache_msi (
                     if (!mem_write_req || mem_write_ack) begin
                         if (wb_cnt == 3'd7) begin
                             // Writeback complete
-                            if (snoop_hit0) msi[0][snoop_idx] <= MSI_S;
-                            else if (snoop_hit1) msi[1][snoop_idx] <= MSI_S;
+                            if (snoop_pend_hit0) msi[0][snoop_pend_idx] <= MSI_S;
+                            else if (snoop_pend_hit1) msi[1][snoop_pend_idx] <= MSI_S;
+                            snoop_pend <= 1'b0;
                             state <= IDLE;
                         end else begin
                             wb_cnt <= wb_cnt + 1'b1;
-                            mem_addr <= {tag[snoop_hit0 ? 0 : 1][snoop_idx], snoop_idx, wb_cnt + 1'b1, 2'b0};
-                            mem_wdata <= data[snoop_hit0 ? 0 : 1][snoop_idx][wb_cnt + 1'b1];
+                            mem_addr <= {tag[snoop_pend_hit0 ? 0 : 1][snoop_pend_idx], snoop_pend_idx, wb_cnt + 1'b1, 2'b0};
+                            mem_wdata <= data[snoop_pend_hit0 ? 0 : 1][snoop_pend_idx][wb_cnt + 1'b1];
                             mem_write_req <= 1'b1;
                         end
                     end
@@ -369,12 +402,16 @@ module l1_dcache_msi (
 
                 SNOOP_INV: begin
                     // Invalidate the line (snoop write hit S or M)
-                    if (snoop_hit0) msi[0][snoop_idx] <= MSI_I;
-                    else if (snoop_hit1) msi[1][snoop_idx] <= MSI_I;
+                    if (snoop_pend_hit0) msi[0][snoop_pend_idx] <= MSI_I;
+                    else if (snoop_pend_hit1) msi[1][snoop_pend_idx] <= MSI_I;
                     // Snoop write invalidates our reservation if it matches
-                    if (reservation_valid && (reservation_addr[31:5] == {snoop_addr[31:11], snoop_idx})) begin
+                    if (reservation_valid &&
+                        (reservation_addr[10:5] == snoop_pend_idx) &&
+                        ((snoop_pend_hit0 && reservation_addr[31:11] == tag[0][snoop_pend_idx]) ||
+                         (snoop_pend_hit1 && reservation_addr[31:11] == tag[1][snoop_pend_idx]))) begin
                         reservation_valid <= 1'b0;
                     end
+                    snoop_pend <= 1'b0;
                     state <= IDLE;
                 end
 
