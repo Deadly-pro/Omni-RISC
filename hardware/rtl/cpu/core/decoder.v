@@ -45,6 +45,7 @@ module decoder(
   output reg branch,              // conditional branch (B-type)
   output reg jump,                // JAL / JALR
   output reg is_mul_div,          // R-type with funct7 == 7'b0000001 (M-ext)
+    output reg is_atomic,         // A-extension LR/SC (opcode 7'b0101111)
   output reg [1:0] op_type,             // 0=R, 1=I, 2=S, 3=B (per tb_decoder.cpp)
   output reg illegal_instr,       // unrecognized opcode/funct combination
   output reg is_csr,              // SYSTEM op, funct3 != 0 (a CSR instruction)
@@ -69,6 +70,7 @@ always @(*)begin
     op_type=0;
     alu_op=0;
     is_mul_div=0;
+    is_atomic=0;
     is_csr=0;
     is_ecall=0;
     is_ebreak=0;
@@ -100,6 +102,21 @@ always @(*)begin
                    endcase
                end
                else if(funct7==7'b0000001)is_mul_div=1;
+    end
+    7'b0101111: begin // A-extension (Atomic)
+        // funct5[4:0] in instruction[31:27], funct3 in instruction[14:12], aq/rl in instruction[26:25]
+        // LR.W: funct5=00010, funct3=010, rd=dest, rs1=addr, rs2=0
+        // SC.W: funct5=00011, funct3=010, rd=dest, rs1=addr, rs2=src
+        // For D4: implement LR.W and SC.W only; other AMOs are illegal
+        reg_write=1;
+        op_type=1;
+        alu_op=12;    // new ALU op for atomic
+        is_atomic=1;
+        case ({instruction[31:27], funct3})
+            8'b00010_010: mem_read=1;   // LR.W is a load
+            8'b00011_010: mem_write=1;  // SC.W is a store
+            default: illegal_instr=1;
+        endcase
     end
     7'b0010011:begin //I Type
         reg_write=1; //write enable for rd

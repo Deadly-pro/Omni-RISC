@@ -16,6 +16,8 @@ module mem_stage #(
       input         ex_mem_reg_write,
       input         ex_mem_mem_read,
       input         ex_mem_mem_write,    // unused today
+      input         ex_mem_is_lr,        // LR.W instruction
+      input         ex_mem_is_sc,        // SC.W instruction
 
       // ---- MEM/WB bundle out ----
       output reg [31:0] mem_wb_alu_result,
@@ -89,6 +91,8 @@ wire [31:0] dmem_wdata_mem;   // write data from cache to data_bram
           .addr(dmem_addr), .wdata(dmem_wdata_cpu), .byte_en(dmem_wen),
           .read_en(is_cache_op & ~issue_done & ex_mem_mem_read),
           .write_en(is_cache_op & ~issue_done & ex_mem_mem_write),
+          .is_lr(is_cache_op & ~issue_done & ex_mem_mem_read & ex_mem_is_lr),
+          .is_sc(is_cache_op & ~issue_done & ex_mem_mem_write & ex_mem_is_sc),
           .rdata(dc_rdata), .hit(dc_hit), .miss(dc_miss), .ready(dc_ready),
           .mem_addr(dc_mem_addr), .mem_rdata(dmem_rdata),
           .mem_read_req(dc_mem_req), .mem_read_ack(dc_mem_ack),
@@ -109,10 +113,12 @@ wire [31:0] dmem_wdata_mem;   // write data from cache to data_bram
 
       assign mem_hold    = is_cache_op & ~dc_ready;
       assign load_rdata  = data_cs ? dc_rdata : pbus_rdata;
-      // refill reads take the cache's address; otherwise (the one-shot direct
-      // write-through store) the LSU's address
-      assign dbram_addr  = dc_mem_req ? dc_mem_addr : dmem_addr;
-      assign dbram_wen   = dmem_wen & {4{data_cs & ~issue_done}};
+      // refill reads AND cache write-through (SC.W / write-allocate) take the
+      // cache's address; otherwise the LSU's address
+      assign dbram_addr  = (dc_mem_req | dc_mem_write_req) ? dc_mem_addr : dmem_addr;
+      // cache write-through is a full-word store; LSU writes use its byte enables
+      assign dbram_wen   = dc_mem_write_req ? 4'b1111
+                                            : (dmem_wen & {4{data_cs & ~issue_done}});
     end else begin : g_nocache
       assign mem_hold    = 1'b0;
       assign load_rdata  = data_cs ? dmem_rdata : pbus_rdata;

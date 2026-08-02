@@ -20,8 +20,13 @@
 //   - Same-cycle CPU request + snoop    → CPU wins, snoop retried next cycle
 //   - Writeback is 8 words, one per cycle with mem_write_req/ack
 //
+// LR/SC extension:
+//   - LR.W: load-reserve, sets reservation (addr + valid)
+//   - SC.W: store-conditional, succeeds only if reservation matches addr
+//   - Reservation cleared on: any other store (local or remote), cache invalidation
+//
 // Memory interface (1 word per request/ack):
-//   CPU:   addr, wdata, byte_en[3:0], read_en, write_en, rdata, hit, miss, ready
+//   CPU:   addr, wdata, byte_en[3:0], read_en, write_en, is_lr, is_sc, rdata, hit, miss, ready
 //   Memory: mem_addr, mem_rdata, mem_read_req, mem_read_ack,
 //           mem_write_req, mem_wdata, mem_write_ack
 //   Snoop:  snoop_addr, snoop_read, snoop_write, snoop_ack (to bus)
@@ -35,6 +40,8 @@ module l1_dcache_msi (
     input  [3:0]  byte_en,
     input         read_en,
     input         write_en,
+    input         is_lr,          // LR.W instruction
+    input         is_sc,          // SC.W instruction
     output reg [31:0] rdata,
     output        hit,
     output        miss,
@@ -99,6 +106,7 @@ module l1_dcache_msi (
 
     reg       req;                    // a request is latched
     reg       req_read, req_write;
+    reg       req_is_lr, req_is_sc;   // latched LR/SC so the type survives a refill
     reg [31:0] req_addr, req_wdata;
     reg [3:0]  req_ben;
 
@@ -113,6 +121,10 @@ module l1_dcache_msi (
     reg [5:0]  snoop_idx;
     reg        snoop_is_read, snoop_is_write;
     reg [2:0]  wb_cnt;                // writeback word counter (0-7)
+
+    // LR/SC reservation tracking
+    reg        reservation_valid;     // reservation is active
+    reg [31:0] reservation_addr;      // reserved address
 
     integer k;
     reg [31:0] wnew;
@@ -140,6 +152,8 @@ module l1_dcache_msi (
             mem_read_req <= 1'b0; mem_write_req <= 1'b0;
             rdata <= 32'b0; last_way <= 1'b0; pending_write <= 1'b0;
             wb_cnt <= 3'b0;
+            reservation_valid <= 1'b0;
+            reservation_addr <= 32'b0;
             for (k = 0; k < SETS; k = k + 1) begin
                 msi[0][k] <= MSI_I;
                 msi[1][k] <= MSI_I;
@@ -149,9 +163,11 @@ module l1_dcache_msi (
             mem_write_req <= 1'b0;
             ready <= 1'b0;
 
-            // Latch new CPU request
+            // Latch new CPU request (incl. LR/SC type — the one-shot read/write
+            // pulses drop long before a refill completes)
             if (read_en | write_en) begin
                 req <= 1'b1; req_read <= read_en; req_write <= write_en;
+                req_is_lr <= is_lr; req_is_sc <= is_sc;
                 req_addr <= addr; req_wdata <= wdata; req_ben <= byte_en;
             end
 
@@ -186,8 +202,51 @@ module l1_dcache_msi (
                         // New request arrived while latching — re-enter CHECK next cycle
                         state <= CHECK;
                     end
+                    else if (req_is_lr && req_read) begin
+                        // LR.W: load-reserve
+                        if (req_hit) begin
+                            rdata <= data[hit0 ? 0 : 1][req_addr[10:5]][req_addr[4:2]];
+                            reservation_valid <= 1'b1;
+                            reservation_addr <= req_addr;
+                            ready <= 1'b1; req <= 1'b0; state <= IDLE;
+                        end else begin
+                            // LR miss → refill, then set reservation (WAITM_RD
+                            // completion sees req_is_lr)
+                            pending_write <= 1'b0;  // not a write-allocate
+                            fill_cnt <= 3'b0;
+                            fill_way <= pick_way(req_addr, last_way);
+                            mem_addr <= {req_addr[31:5], 5'b0};
+                            mem_read_req <= 1'b1;
+                            state <= WAITM_RD;
+                        end
+                    end
+                    else if (req_is_sc && req_write) begin
+                        // SC.W: store-conditional
+                        if (req_hit && reservation_valid && (reservation_addr == req_addr)) begin
+                            // Reservation valid and address matches → succeed
+                            wnew = data[hit0 ? 0 : 1][req_addr[10:5]][req_addr[4:2]];
+                            if (req_ben[0]) wnew[7:0]   = req_wdata[7:0];
+                            if (req_ben[1]) wnew[15:8]  = req_wdata[15:8];
+                            if (req_ben[2]) wnew[23:16] = req_wdata[23:16];
+                            if (req_ben[3]) wnew[31:24] = req_wdata[31:24];
+                            data[hit0 ? 0 : 1][req_addr[10:5]][req_addr[4:2]] <= wnew;
+                            mem_addr <= req_addr;
+                            mem_wdata <= wnew;
+                            mem_write_req <= 1'b1;
+                            if (hit0) msi[0][req_addr[10:5]] <= MSI_M;
+                            else      msi[1][req_addr[10:5]] <= MSI_M;
+                            reservation_valid <= 1'b0;  // clear reservation on success
+                            rdata <= 32'b0;  // SC returns 0 on success
+                            ready <= 1'b1; req <= 1'b0; state <= IDLE;
+                        end else begin
+                            // Reservation invalid or address mismatch → fail
+                            reservation_valid <= 1'b0;
+                            rdata <= 32'b1;  // SC returns non-zero on failure
+                            ready <= 1'b1; req <= 1'b0; state <= IDLE;
+                        end
+                    end
                     else if (req_write) begin
-                        // Write: if hit, update cache and write-through to memory
+                        // Regular write: if hit, update cache and write-through to memory
                         if (req_hit) begin
                             wnew = data[hit0 ? 0 : 1][req_addr[10:5]][req_addr[4:2]];
                             if (req_ben[0]) wnew[7:0]   = req_wdata[7:0];
@@ -202,6 +261,8 @@ module l1_dcache_msi (
                             // State becomes M (was S or M)
                             if (hit0) msi[0][req_addr[10:5]] <= MSI_M;
                             else      msi[1][req_addr[10:5]] <= MSI_M;
+                            // Any local store clears reservation
+                            reservation_valid <= 1'b0;
                             ready <= 1'b1; req <= 1'b0; state <= IDLE;
                         end else begin
                             // Write miss → write-allocate: refill line, then apply
@@ -251,6 +312,12 @@ module l1_dcache_msi (
                                 msi[fill_way][req_addr[10:5]] <= MSI_M;
                             end else begin
                                 rdata <= data[fill_way][req_addr[10:5]][req_addr[4:2]];
+                                // a refilled LR.W miss must arm the reservation
+                                // (the CHECK hit path did it on a hit)
+                                if (req_is_lr) begin
+                                    reservation_valid <= 1'b1;
+                                    reservation_addr <= req_addr;
+                                end
                             end
                             ready <= 1'b1; req <= 1'b0; state <= IDLE;
                         end else begin
@@ -269,6 +336,10 @@ module l1_dcache_msi (
                             // Writeback complete
                             if (snoop_hit0) msi[0][snoop_idx] <= MSI_S;
                             else if (snoop_hit1) msi[1][snoop_idx] <= MSI_S;
+                            // Eviction clears reservation if it matches
+                            if (reservation_valid && (reservation_addr[31:5] == {tag[snoop_hit0 ? 0 : 1][snoop_idx], snoop_idx})) begin
+                                reservation_valid <= 1'b0;
+                            end
                             state <= IDLE;
                         end else begin
                             wb_cnt <= wb_cnt + 1'b1;
@@ -300,6 +371,10 @@ module l1_dcache_msi (
                     // Invalidate the line (snoop write hit S or M)
                     if (snoop_hit0) msi[0][snoop_idx] <= MSI_I;
                     else if (snoop_hit1) msi[1][snoop_idx] <= MSI_I;
+                    // Snoop write invalidates our reservation if it matches
+                    if (reservation_valid && (reservation_addr[31:5] == {snoop_addr[31:11], snoop_idx})) begin
+                        reservation_valid <= 1'b0;
+                    end
                     state <= IDLE;
                 end
 

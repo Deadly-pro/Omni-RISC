@@ -20,6 +20,7 @@ module exec_stage (
      input         id_ex_mem_read,
      input         id_ex_mem_write,
      input         id_ex_is_mul_div,
+     input         id_ex_is_atomic,    // A-extension LR/SC
      input         id_ex_is_csr,
      input         id_ex_is_ecall,     // to trap_unit
      input         id_ex_is_ebreak,    // to trap_unit
@@ -46,6 +47,8 @@ module exec_stage (
      output reg        ex_mem_reg_write,
      output reg        ex_mem_mem_read,
      output reg        ex_mem_mem_write,
+     output reg        ex_mem_is_lr,        // A-extension LR.W
+     output reg        ex_mem_is_sc,        // A-extension SC.W
      output            div_stall,
         // ---- Trap/mret out — COMBINATIONAL, loops back to fetch + decode.flush ----
      output            trap_valid,
@@ -171,6 +174,7 @@ wire redirect_pending = redirect_valid | (redirect_win != 2'b00);
 
 wire [31:0] div_result;  wire div_busy, div_done;
 wire is_div    = id_ex_is_mul_div & id_ex_funct3[2];
+wire is_atomic = id_ex_is_atomic;
 wire div_start = is_div & ~div_busy & ~div_done;
 divider div1(.clk(clk), .reset(reset), .start(div_start),
              .operand_a(fwd_rs1_data), .operand_b(fwd_rs2_data),
@@ -188,6 +192,8 @@ always @(posedge clk) begin
      ex_mem_reg_write<=0;
      ex_mem_mem_read<=0;
      ex_mem_mem_write<=0;
+     ex_mem_is_lr<=0;
+     ex_mem_is_sc<=0;
     end
     else if (is_div & ~div_done) begin
     ex_mem_reg_write <= 0; ex_mem_mem_read <= 0; ex_mem_mem_write <= 0;
@@ -204,8 +210,12 @@ always @(posedge clk) begin
         ex_mem_pc_plus4<=id_ex_pc_plus4;
         ex_mem_jump<=id_ex_jump;
         ex_mem_reg_write<=id_ex_reg_write;
-        ex_mem_mem_read<=id_ex_mem_read;
+        // SC.W is a store but also returns a result (0=success,1=fail) that must
+        // ride the load path so WB writes the dcache's rdata, not the ALU result
+        ex_mem_mem_read<=id_ex_mem_read | (is_atomic & id_ex_mem_write);
         ex_mem_mem_write<=id_ex_mem_write;
+        ex_mem_is_lr<=id_ex_mem_read & is_atomic;  // LR.W is a load
+        ex_mem_is_sc<=id_ex_mem_write & is_atomic;  // SC.W is a store
     end
 end
 endmodule
