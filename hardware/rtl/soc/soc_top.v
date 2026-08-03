@@ -11,6 +11,7 @@
 //   0x02000000-0x0200FFFF  CLINT / timer (mtimecmp @0x4000, mtime @0xBFF8)
 //   0x40000000-0x40000FFF  UART  (TX @+0, status @+4)
 //   0x40001000-0x40001FFF  GPIO  (8-bit output @+0)
+//   0x40002000-0x40002FFF  GPU   (cmd regs; kernel flashed via IMEM_FILE)
 module soc_top (
     input         clk,
     input         reset,
@@ -23,7 +24,7 @@ module soc_top (
     wire        pbus_read;
     wire        mtip;
 
-    wire [31:0] uart_rdata, timer_rdata, gpio_rdata;
+    wire [31:0] uart_rdata, timer_rdata, gpio_rdata, gpu_rdata;
 
     // Phase C: the L1 caches are module-verified (tb_cache/tb_icache) but the
     // SoC pipeline integration still has a fetch-pairing bug on concurrent
@@ -88,6 +89,22 @@ module soc_top (
         .gpio_out(gpio_out)
     );
 
+    // GPU: pbus slave @0x40002000. Kernel hex flashed into imem at time zero;
+    // CPU dispatches via cmd regs, reads results back via the +0x14 readback.
+    wire        gpu_ready_unused;
+    wire [3:0]  gpu_active_unused;
+    gpu_top #(.IMEM_FILE("gpu_demo.hex")) u_gpu(
+        .clk(clk),
+        .reset(reset),
+        .pbus_addr(pbus_addr),
+        .pbus_wdata(pbus_wdata),
+        .pbus_wen(pbus_wen),
+        .pbus_read(pbus_read),
+        .pbus_rdata(gpu_rdata),
+        .pbus_ready(gpu_ready_unused),
+        .active_warps(gpu_active_unused)
+    );
+
     // each slave drives 0 when not selected, so ORing selects the winner
-    assign pbus_rdata = uart_rdata | timer_rdata | gpio_rdata;
+    assign pbus_rdata = uart_rdata | timer_rdata | gpio_rdata | gpu_rdata;
 endmodule

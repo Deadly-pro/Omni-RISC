@@ -116,10 +116,11 @@ The caches are wired into the pipeline behind a `USE_CACHES` parameter (default 
 - **E3.** `warp_scheduler` (4 warps) + `gpu_fetch` + `gpu_decode`.
 - **E4.** `gpu_top` + `gpu_cmd_proc` (MMIO command interface).
 - **E5.** Kernels: `vector_add` first, then `relu`/`conv2d`/`matmul`; verify against a scalar reference.
-- **Done when:** GPU runs kernels standalone with correct results.
+- **Done when:** GPU runs kernels standalone with correct results. **✓ DONE (Aug 2026)** — 7/7 GPU TBs green (`tb_gpu_top_kernels` 66/66: vector_add, relu, 2x2 matmul, 3-tap conv2d across 4 warps); `scripts/gpu_asm.py` assembles the 16-bit SIMT ISA to `$readmemh` hex.
 
 ## Phase F — Coherent-APU integration  *(STRETCH — the capstone)*
 - **F1.** Unified shared memory + shared coherence/ordering point (shared LLC or memory-side directory).
+- *Partial (Aug 2026):* the MMIO command path is in — `gpu_top` is a pbus slave @0x40002000 in `soc_top`, CPU dispatches via `drivers/gpu.c`, reads a result back through the `+0x14` scratchpad readback; verified end-to-end in `tb_soc_gpu` (CPU → launch → idle poll → read 42 → firmware PASS). Still missing for real coherence: unified kernel memory, flush/invalidate, acquire/release.
 - **F2.** Cache **flush/invalidate** ops for CPU D$ and GPU caches.
 - **F3.** **Acquire/release handshake** at kernel launch/completion in `gpu_cmd_proc` + driver.
 - **F4.** End-to-end demo: CPU allocates a buffer in unified memory, writes+flushes, launches a GPU kernel via MMIO, GPU computes+flushes, CPU invalidates+reads — **coherent, with no manual copies**.

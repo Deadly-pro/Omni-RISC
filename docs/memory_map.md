@@ -14,6 +14,7 @@ peripheral slaves.
 | `0x0200_0000` – `0x0200_FFFF` | CLINT / timer    | `mtime` free-runs; `mtip` asserts when `mtime >= mtimecmp`. |
 | `0x4000_0000` – `0x4000_0FFF` | UART             | TX-only 115200-8N1. |
 | `0x4000_1000` – `0x4000_1FFF` | GPIO             | 8-bit output. |
+| `0x4000_2000` – `0x4000_2FFF` | GPU              | SIMT engine: cmd regs + kernel result readback. |
 
 ### CLINT / timer (`hardware/rtl/soc/timer.v`)
 
@@ -41,6 +42,25 @@ Baud fixed: 115200 at a 50 MHz system clock (÷434).
 | Offset | Register | Access | Notes |
 |--------|----------|--------|-------|
 | `+0x00` | GPIO out | RW     | 8-bit output; reads return the current value |
+
+### GPU (`hardware/rtl/gpu/gpu_top.v`, pbus slave)
+
+| Offset | Register       | Access | Notes |
+|--------|----------------|--------|-------|
+| `+0x00` | warp_pc[0]     | RW     | start address of warp 0's kernel |
+| `+0x04` | warp_pc[1]     | RW     | warp 1 (unused by single-kernel demo) |
+| `+0x08` | warp_pc[2]     | RW     | warp 2 |
+| `+0x0C` | warp_pc[3]     | RW     | warp 3 |
+| `+0x10` | LAUNCH         | W      | bit31 = go, bit[1:0] = warp id |
+| `+0x14` | RESULT         | R      | warp0 scratchpad word 0 (host readback) |
+| other  | STATUS         | R      | low 4 bits = active_warps bitmap |
+
+The CPU dispatches a kernel by writing `warp_pc[0]`, then `LAUNCH`, then polling
+STATUS until `active_warps == 0`, then reading RESULT. The kernel is flashed
+into GPU imem at synthesis time (`.IMEM_FILE` → `$readmemh`); pushing kernel hex
+over pbus is future unified-memory work.
+
+## Firmware agreement
 
 ## Firmware agreement
 

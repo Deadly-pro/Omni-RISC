@@ -263,6 +263,18 @@ if [[ "$TB_BASENAME" == tb_dual_spin ]]; then
     cp "$SPIN_HEX" "$OBJ_DIR/program.hex"
 fi
 
+# APU GPU-dispatch test: stage the CPU firmware (benchmark_gpu) as program.hex
+# and the flashed GPU kernel as gpu_demo.hex (soc_top's gpu_top IMEM_FILE).
+if [[ "$TB_BASENAME" == tb_soc_gpu ]]; then
+    # CPU firmware: build if absent, stage as program.hex
+    make -C "$PROJECT_ROOT/firmware" APP=benchmark_gpu >/dev/null 2>&1
+    cp "$PROJECT_ROOT/firmware/benchmark_gpu.hex" "$OBJ_DIR/program.hex"
+    # GPU kernel: assemble on demand (firmware `make clean` nukes any *.hex)
+    python3 "$PROJECT_ROOT/scripts/gpu_asm.py" \
+        "$PROJECT_ROOT/firmware/gpu_kernels/gpu_demo.S" -o "$OBJ_DIR/gpu_demo.hex" \
+        >/dev/null
+fi
+
 # =============================================================================
 # Run simulation
 # =============================================================================

@@ -56,7 +56,8 @@ module gpu_top #(
         .cmd_warp_pc(cmd_warp_pc),
         .cmd_warp_id(cmd_warp_id),
         .cmd_launch(cmd_launch),
-        .active_warps(active_warps)
+        .active_warps(active_warps),
+        .result(gpu_result)
     );
 
     // ---- decode ----
@@ -128,6 +129,9 @@ module gpu_top #(
     wire [127:0] rs2_data   [0:3];
     wire [31:0]  lsu_addr   [0:3];
     wire [127:0] sp_rd_unused [0:3];
+    wire [127:0] host_rdata [0:3];
+    // host result readback for the SoC: warp0 scratchpad word 0 (lane0)
+    wire [31:0] gpu_result = host_rdata[0][31:0];
 
     generate
         for (w = 0; w < 4; w = w + 1) begin : g_warp
@@ -150,6 +154,8 @@ module gpu_top #(
                 .sp_wdata(rs2_data[w]),
                 .sp_raddr(lsu_addr[w]),
                 .sp_rdata(sp_rd_unused[w]),
+                .host_raddr(8'b0),          // host result = scratchpad word 0
+                .host_rdata(host_rdata[w]),
                 .alu_result(alu_result[w]),
                 .lsu_addr(lsu_addr[w]),
                 .ld_data_out(ld_data[w]),

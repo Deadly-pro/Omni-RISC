@@ -14,7 +14,12 @@ module gpu_scratchpad (
     // write port
     input  [31:0] waddr,
     input  [127:0] wdata,
-    input         write_en
+    input         write_en,
+
+    // host read port — lets the CPU/SoC read one word index across all 4 banks
+    // (host_rdata[31:0] = bank0 word host_raddr, [63:32]=bank1, ...). Combinational.
+    input  [7:0]  host_raddr,
+    output [127:0] host_rdata
 );
     reg [31:0] bank0 [0:255] /*verilator public*/;
     reg [31:0] bank1 [0:255] /*verilator public*/;
@@ -40,4 +45,9 @@ module gpu_scratchpad (
     assign rdata[63:32]  = bank1[raddr[15:8]];
     assign rdata[95:64]  = bank2[raddr[23:16]];
     assign rdata[127:96] = bank3[raddr[31:24]];
+
+    assign host_rdata[31:0]   = bank0[host_raddr];
+    assign host_rdata[63:32]  = bank1[host_raddr];
+    assign host_rdata[95:64]  = bank2[host_raddr];
+    assign host_rdata[127:96] = bank3[host_raddr];
 endmodule

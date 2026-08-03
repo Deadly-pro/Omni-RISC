@@ -16,7 +16,9 @@ module gpu_cmd_proc (
     output [1:0]  cmd_warp_id,
     output        cmd_launch,
     // status
-    input  [3:0]  active_warps
+    input  [3:0]  active_warps,
+    // host-visible result (warp0 scratchpad word), read back at +0x14
+    input  [31:0] result
 );
 
     // Command registers (memory-mapped at 0x4000_2000)
@@ -69,6 +71,7 @@ module gpu_cmd_proc (
     wire [31:0] rdata_2 = warp_pc[2];
     wire [31:0] rdata_3 = warp_pc[3];
     wire [31:0] rdata_10 = {launch_pending, 29'b0, launch_warp_id};
+    wire [31:0] rdata_14 = result;   // warp0 scratchpad result readback
     wire [31:0] rdata_def = {28'b0, active_warps};
 
     assign pbus_rdata = (pbus_addr[4:0] == 5'h00) ? rdata_0 :
@@ -76,6 +79,7 @@ module gpu_cmd_proc (
                         (pbus_addr[4:0] == 5'h08) ? rdata_2 :
                         (pbus_addr[4:0] == 5'h0C) ? rdata_3 :
                         (pbus_addr[4:0] == 5'h10) ? rdata_10 :
+                        (pbus_addr[4:0] == 5'h14) ? rdata_14 :
                         rdata_def;
 
 endmodule
