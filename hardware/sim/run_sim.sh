@@ -44,7 +44,7 @@ RTL_DIR="$PROJECT_ROOT/hardware/rtl"
 
 # ---- Default configuration ---------------------------------------------------
 OPEN_WAVE=0
-VERILATOR_FLAGS="--cc --exe --trace --Wall -Wno-UNUSED -Wno-UNDRIVEN"
+VERILATOR_FLAGS="--cc --exe --trace --Wall -Wno-UNUSED -Wno-UNDRIVEN -Wno-PINCONNECTEMPTY -Wno-EOFNEWLINE -Wno-BLKSEQ"
 # Extra include paths: all RTL subdirectories so `include works
 RTL_INCLUDES=""
 while IFS= read -r -d '' dir; do
@@ -150,6 +150,35 @@ fi
 TB_BASENAME="$(basename "$TB_PATH")"
 DUT_NAME="${TB_BASENAME#tb_}"
 
+# SoC testbenches all use soc_top as DUT
+if [[ "$TB_BASENAME" == tb_soc_* ]]; then
+    DUT_NAME="soc_top"
+fi
+
+# CPU testbenches that test specific modules (not cpu_top)
+if [[ "$TB_BASENAME" == tb_cache ]]; then
+    DUT_NAME="l1_dcache"
+fi
+
+if [[ "$TB_BASENAME" == tb_icache ]]; then
+    DUT_NAME="l1_icache"
+fi
+
+# Compliance testbench uses cpu_top
+if [[ "$TB_BASENAME" == tb_compliance ]]; then
+    DUT_NAME="cpu_top"
+fi
+
+# Dual-core testbenches use dual_core_top
+if [[ "$TB_BASENAME" == tb_dual_* ]] || [[ "$TB_BASENAME" == tb_litmus_* ]]; then
+    DUT_NAME="dual_core_top"
+fi
+
+# GPU integration testbenches (tb_gpu_top_<x>) use gpu_top
+if [[ "$TB_BASENAME" == tb_gpu_top_* ]]; then
+    DUT_NAME="gpu_top"
+fi
+
 # Search for the DUT Verilog file anywhere under RTL
 DUT_VERILOG=""
 while IFS= read -r -d '' vfile; do
@@ -217,6 +246,23 @@ if [ ! -x "$SIM_BIN" ]; then
     exit 1
 fi
 
+# Stage firmware images: the RTL BRAMs `$readmemh` from the run directory
+# (instr_bram defaults to "program.hex"). Dual-core spinlock TBs need the
+# spinlock image as program.hex. That hex is a gitignored build artifact, so
+# assemble it on demand from apps/spinlock.S (C-style `//` comments stripped
+# for GNU as).
+if [[ "$TB_BASENAME" == tb_dual_spin ]]; then
+    SPIN_S="$PROJECT_ROOT/firmware/apps/spinlock.S"
+    SPIN_HEX="$PROJECT_ROOT/firmware/spinlock.hex"
+    if [ ! -f "$SPIN_HEX" ] || [ "$SPIN_S" -nt "$SPIN_HEX" ]; then
+        sed 's#//.*$##' "$SPIN_S" > /tmp/omni_spin.S
+        riscv64-linux-gnu-as -march=rv32ima -o /tmp/omni_spin.o /tmp/omni_spin.S \
+            && riscv64-linux-gnu-objcopy -O binary /tmp/omni_spin.o /tmp/omni_spin.bin \
+            && python3 "$PROJECT_ROOT/firmware/elf_to_hex.py" /tmp/omni_spin.bin "$SPIN_HEX"
+    fi
+    cp "$SPIN_HEX" "$OBJ_DIR/program.hex"
+fi
+
 # =============================================================================
 # Run simulation
 # =============================================================================
@@ -225,7 +271,8 @@ echo -e "${BOLD}--- Running simulation: $TB_BASENAME ---${RESET}"
 echo ""
 
 SIM_EXIT=0
-if "$SIM_BIN" 2>&1; then
+# Run from OBJ_DIR so that program.hex in that directory is found
+if (cd "$OBJ_DIR" && "$SIM_BIN" 2>&1); then
     echo ""
     echo -e "${GREEN}${BOLD}========================================${RESET}"
     echo -e "${GREEN}${BOLD}  SIMULATION PASSED  ✓${RESET}"

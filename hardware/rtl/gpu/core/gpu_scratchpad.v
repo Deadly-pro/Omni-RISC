@@ -16,10 +16,10 @@ module gpu_scratchpad (
     input  [127:0] wdata,
     input         write_en
 );
-    reg [31:0] bank0 [0:255];
-    reg [31:0] bank1 [0:255];
-    reg [31:0] bank2 [0:255];
-    reg [31:0] bank3 [0:255];
+    reg [31:0] bank0 [0:255] /*verilator public*/;
+    reg [31:0] bank1 [0:255] /*verilator public*/;
+    reg [31:0] bank2 [0:255] /*verilator public*/;
+    reg [31:0] bank3 [0:255] /*verilator public*/;
     integer i;
 
     always @(posedge clk) begin
