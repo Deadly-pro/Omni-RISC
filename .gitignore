@@ -59,6 +59,9 @@ tests/compliance_work/
 # Local tooling / unrelated docs (not for public release)
 .claude/
 HLS4ML_VFI_HANDOFF.md
+# Personal study-planning notes (not part of the project)
+revision.md
+docs/reading_notes.md
 # Build / run artifacts
 *.dump
 hardware/vivado/clockInfo.txt

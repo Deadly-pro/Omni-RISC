@@ -4,7 +4,7 @@ Project context for OpenCode sessions working in this repository.
 
 ## Project
 
-**Omni-RISC APU** — RISC-V Accelerated Processing Unit (RV32IM CPU + SIMT GPU), solo build, interview-driven (Sept 2026 NVIDIA OA). Target: coherent APU where two scalar RV32IM cores share coherent memory via **fine-grained snooping MSI** (write-through, write-invalidate, 2 agents only) and the GPU is a **coarse-grained** coherence participant (flush/invalidate + acquire/release at kernel boundaries). See `docs/roadmap.md` (locked plan, priority tiers) and `docs/architecture.md`.
+**Omni-RISC APU** — RISC-V Accelerated Processing Unit (RV32IM CPU + SIMT GPU), solo build. Target: coherent APU where two scalar RV32IM cores share coherent memory via **fine-grained snooping MSI** (write-through, write-invalidate, 2 agents only) and the GPU is a **coarse-grained** coherence participant (flush/invalidate + acquire/release at kernel boundaries). See `docs/roadmap.md` (locked plan, priority tiers) and `docs/architecture.md`.
 
 **Status (Aug 2026)** — the FLOOR is nearly done; do not treat old "Phase A in progress" docs as current:
 - **A CPU→compliance: DONE** — riscv-arch-test 53/54 (1 skip, Zifencei-fence.i: split I/D BRAMs make self-modifying code impossible). Results in `docs/compliance_results.md`.

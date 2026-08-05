@@ -26,7 +26,7 @@ A CPU+GPU on one die sharing **unified, consistent memory** — the thing that m
 
 ---
 
-## Priority tiers (for the Sept 2026 NVIDIA OA)
+## Priority tiers
 
 | Tier | Phases | Why |
 |------|--------|-----|

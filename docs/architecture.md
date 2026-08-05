@@ -6,7 +6,7 @@ A CPU + SIMT-GPU SoC on FPGA (Xilinx Artix-7 XC7A100T). Solo build. The hardware
 
 ## Scope decision (July 2026, updated)
 
-The CPU core is **RV32IM in-order 5-stage** (Path A). Out-of-order (ROB, rename, scoreboard, **dual-issue/superscalar**, GShare) stays deferred — a finished simple core beats a half-built OoO in interviews. Archived scope: `ooo-scope-archive` branch. Fixed-function ML accelerators (conv/upscale/VFI engines) were cut — that belongs to the hls4ml project.
+The CPU core is **RV32IM in-order 5-stage** (Path A). Out-of-order (ROB, rename, scoreboard, **dual-issue/superscalar**, GShare) stays deferred — a finished simple core beats a half-built OoO. Archived scope: `ooo-scope-archive` branch. Fixed-function ML accelerators (conv/upscale/VFI engines) were cut — that belongs to the hls4ml project.
 
 **Locked target model — a coherent APU.** CPU and GPU share **unified, consistent memory**. Two scalar RV32IM cores with private L1s and **fine-grained snooping MSI** coherence between them; the GPU is a **coarse-grained** coherence participant (flush/invalidate + acquire/release at kernel boundaries), *not* a fine-grained snooping peer. MSI/write-through/2-core on purpose — MESI/write-back/4-core/full-directory is the months-trap and is out. Full plan, phases, and priority tiers: **`docs/roadmap.md`**.
 
