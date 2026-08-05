@@ -128,6 +128,11 @@ The caches are wired into the pipeline behind a `USE_CACHES` parameter (default 
 - **Done when:** CPU and GPU cooperate on shared data at sync-point granularity, coherence maintained, no explicit copies.
 
 ## Phase G — Synthesis + measurement  *(FLOOR)*
-- Vivado on XC7A100T: Fmax, LUT/FF/BRAM/DSP per subsystem. Expect ~50–100 MHz; likely critical path ALU→branch→redirect (shared-ALU choice).
+- **Flow is in (Aug 2026):** `make synth` = Vivado 2026.1 (`/tools/2026.1/Vivado`) batch on `soc_top` (xc7a100tcsg324-1, 50 MHz). Reports in `hardware/vivado/reports/`.
+
+- **BRAM fit DONE (Aug 2026):** `data_bram` read is now registered (`always @(posedge clk) rdata <= mem[addr[17:2]]`), which lets Vivado map the 256KB arrays into BRAM instead of distributed RAM. Supporting pipeline-timing changes: `mem_stage` inserts a 1-cycle `mem_hold` per data-window load (`dbram_hold` toggle) and toggles `dc_mem_ack` for dcache refills; `dual_core_top` toggles per-core read acks; `decode_stage` gives `hold` priority over `flush` (a branch/jump frozen in EX by a hold must not have its bundle cleared by its own redirect before EX/MEM captures it — a real bug that showed up as `tb_soc_gpu` printing "GPU(4444…", fixed by reordering the ID/EX update priority).
+
+- **Results (post-fix, real firmware image staged):** synthesis 6,378 LUTs (10%) incl. **LUT-as-Memory 0 (was 32,768 = 172% overflow)**, 10,720 FF (8.5%), **64 RAMB36E1 (47.8%)**, 18 DSP; synth setup WNS +3.10ns. Implementation (place+route, no board — timing is the fit gate): **6,270 LUTs (9.9%), 64.5 BRAM tiles (47.8%), 10,720 FF, 18 DSP; setup WNS +1.305ns at 50 MHz → Fmax ≈ 53.5 MHz**. Critical path: `u_cpu/u_mem/mem_wb_rdata[31]` → `u_cpu/u_exec/ex_mem_alu_result[29]` (WB→EX forwarding into the ALU operand mux). Hold +0.117ns, PW +9.5ns, both clean.
+  - Remaining: `impl.dcp` exists; bitstream deliberately off (no board target). Next lever for Fmax is pipelining/retiming the register-file→ALU forwarding mux if a higher clock is ever needed.
 - CPI on real programs (CoreMark/Dhrystone). GPU kernel speedup vs scalar.
 - **Done when:** numbers are recorded and the writeup is done.

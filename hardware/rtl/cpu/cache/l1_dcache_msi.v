@@ -148,10 +148,10 @@ module l1_dcache_msi (
     endfunction
 
     // Snoop hit detection (combinational)
-    wire snoop_idx_c = snoop_addr[10:5];
+    wire [5:0] snoop_idx_c = snoop_addr[10:5];
     wire snoop_hit0_c = (msi[0][snoop_idx_c] != MSI_I) && tag[0][snoop_idx_c] == snoop_addr[31:11];
     wire snoop_hit1_c = (msi[1][snoop_idx_c] != MSI_I) && tag[1][snoop_idx_c] == snoop_addr[31:11];
-    wire snoop_hit_any_c = snoop_hit0_c || snoop_hit1;
+    wire snoop_hit_any_c = snoop_hit0_c || snoop_hit1_c;
 
     // Snoop MSI state (combinational)
     wire [1:0] snoop_msi_c = snoop_hit0_c ? msi[0][snoop_idx_c] :

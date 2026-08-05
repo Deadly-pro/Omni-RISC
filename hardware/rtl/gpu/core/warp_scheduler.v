@@ -39,8 +39,7 @@ module warp_scheduler #(
     input         complete_valid,
 
     // status
-    output [3:0]  active_warps,    // bitmap of active warps
-    output [31:0] debug_pc [0:NUM_WARPS-1]
+    output [3:0]  active_warps     // bitmap of active warps
 );
 
     localparam ST_IDLE  = 2'b00;
@@ -110,9 +109,5 @@ module warp_scheduler #(
 
     assign active_warps = { (status[3] != ST_IDLE), (status[2] != ST_IDLE),
                             (status[1] != ST_IDLE), (status[0] != ST_IDLE) };
-    assign debug_pc[0] = pc[0];
-    assign debug_pc[1] = pc[1];
-    assign debug_pc[2] = pc[2];
-    assign debug_pc[3] = pc[3];
 
 endmodule

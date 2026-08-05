@@ -104,8 +104,7 @@ module gpu_top #(
         .issue_ready(issue_ready),
         .complete_warp_id(complete_warp_id),
         .complete_valid(complete_valid),
-        .active_warps(active_warps),
-        .debug_pc()
+        .active_warps(active_warps)
     );
 
     // instruction fetch

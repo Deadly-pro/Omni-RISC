@@ -55,8 +55,8 @@ module exec_stage (
      output [31:0]     trap_target
  );
 
-reg [31:0] operand_a,operand_b,result;
-reg zero_flag,take_branch;
+wire [31:0] operand_a,operand_b,result;
+wire zero_flag,take_branch;
 wire [31:0] fwd_rs1_data, fwd_rs2_data;
 wire [31:0] ex_mem_fwd_value = ex_mem_jump ? ex_mem_pc_plus4 : ex_mem_alu_result;
 forwarding_net fwd1(

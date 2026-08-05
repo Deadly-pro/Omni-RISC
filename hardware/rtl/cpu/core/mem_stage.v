@@ -132,8 +132,18 @@ module mem_stage #(
         assign dbram_addr       = 32'b0;
         assign dbram_wen        = 4'b0;
       end else begin : g_dc_internal
-        // backing memory is the internal data_bram (combinational read/write)
-        assign dc_mem_ack       = dc_mem_req;
+        // backing memory is the internal data_bram, whose read is now
+        // REGISTERED (BRAM mapping): a refill word is valid every 2nd cycle
+        // (address presented → latched → valid). Pulse the read ack on the
+        // valid cycles; the dcache holds mem_read_req (level) and samples on
+        // each ack, so 8-word refills take 16 cycles. Writes stay synchronous.
+        reg dc_rd_tog;
+        always @(posedge clk) begin
+            if (reset) dc_rd_tog <= 1'b0;
+            else if (dc_mem_req) dc_rd_tog <= ~dc_rd_tog;
+            else                 dc_rd_tog <= 1'b0;
+        end
+        assign dc_mem_ack       = dc_mem_req & dc_rd_tog;
         assign dc_mem_write_ack = dc_mem_write_req;
         assign mem_if_addr      = 32'b0;
         assign mem_if_read_req  = 1'b0;
@@ -158,7 +168,18 @@ module mem_stage #(
       assign mem_hold    = is_cache_op & ~dc_ready;
       assign load_rdata  = data_cs ? dc_rdata : pbus_rdata;
     end else begin : g_nocache
-      assign mem_hold    = 1'b0;
+      // data_bram read is registered → a data-window load's value is valid one
+      // cycle after its address. Hold the pipeline for exactly one cycle (a
+      // toggle flips while the load sits in MEM) so MEM/WB captures the load's
+      // data together with the load's rd; consecutive loads each get their own
+      // hold. Peripheral (pbus) loads are combinational and unaffected.
+      reg dbram_hold;
+      always @(posedge clk) begin
+          if (reset) dbram_hold <= 1'b0;
+          else if (data_cs & ex_mem_mem_read) dbram_hold <= ~dbram_hold;
+          else                                dbram_hold <= 1'b0;
+      end
+      assign mem_hold    = (data_cs & ex_mem_mem_read) & ~dbram_hold;
       assign load_rdata  = data_cs ? dmem_rdata : pbus_rdata;
       assign dbram_addr  = dmem_addr;
       assign dbram_wen   = data_cs ? dmem_wen : 4'b0;

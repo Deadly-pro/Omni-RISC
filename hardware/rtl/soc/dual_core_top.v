@@ -65,16 +65,33 @@ module dual_core_top (
     assign bram_wdata  = grant_core0 ? core0_mem_wdata : core1_mem_wdata;
     assign bram_wen    = grant_core0 ? {4{core0_mem_write_req}} : {4{core1_mem_write_req}};
 
-    data_bram u_shared_dbram (
+    data_bram #(.MemFile("program.hex")) u_shared_dbram (
         .clk(clk), .addr(bram_addr), .wdata(bram_wdata),
         .wen(bram_wen), .rdata(bram_rdata)
     );
 
-    // Ack and read-data routing (data_bram read is combinational)
-    assign core0_mem_read_ack  = core0_mem_read_req;   // served whenever requested
-    assign core0_mem_write_ack = core0_mem_write_req;
-    assign core0_mem_rdata     = bram_rdata;           // core0 wins when both request
-    assign core1_mem_read_ack  = core1_mem_read_req & ~grant_core0;
+    // Ack and read-data routing. data_bram's read is REGISTERED (BRAM mapping):
+    // a word is valid every 2nd cycle while a core holds its read request, so
+    // the read acks pulse on the valid cycles. Each core's toggle counts only
+    // while it OWNS the bram port (fixed priority: core0 > core1); a mid-refill
+    // arbiter steal resets the toggle, and the dcache's level handshake (req
+    // held until ack) simply stretches the refill. Writes stay synchronous.
+    reg core0_tog, core1_tog;
+    always @(posedge clk) begin
+        if (reset) begin
+            core0_tog <= 1'b0;
+            core1_tog <= 1'b0;
+        end else begin
+            if (core0_mem_read_req) core0_tog <= ~core0_tog;
+            else                    core0_tog <= 1'b0;
+            if (core1_mem_read_req & ~grant_core0) core1_tog <= ~core1_tog;
+            else                                  core1_tog <= 1'b0;
+        end
+    end
+    assign core0_mem_read_ack  = core0_mem_read_req & core0_tog;
+    assign core0_mem_write_ack = core0_mem_write_req;   // sync write, immediate
+    assign core0_mem_rdata     = bram_rdata;            // core0 wins when both request
+    assign core1_mem_read_ack  = core1_mem_read_req & ~grant_core0 & core1_tog;
     assign core1_mem_write_ack = core1_mem_write_req & ~grant_core0;
     assign core1_mem_rdata     = grant_core0 ? 32'b0 : bram_rdata;
 

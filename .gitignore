@@ -14,6 +14,7 @@ CLAUDE.md
 # Vivado
 hardware/vivado/reports/*.rpt
 *.bit
+*.dcp
 *.ltx
 *.xpr
 *.jou
@@ -52,6 +53,14 @@ resume.pdf
 program.hex
 *.hex
 
-# Compliance
-tests/riscv-arch-test/          # cloned by tests/run_compliance.sh
-tests/compliance_work/          # per-test build artifacts
+# Compliance (cloned / generated — not part of the repo)
+tests/riscv-arch-test/
+tests/compliance_work/
+# Local tooling / unrelated docs (not for public release)
+.claude/
+HLS4ML_VFI_HANDOFF.md
+# Build / run artifacts
+*.dump
+hardware/vivado/clockInfo.txt
+hardware/vivado/*.jou
+hardware/vivado/*.backup.*

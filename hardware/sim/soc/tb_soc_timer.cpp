@@ -1,5 +1,5 @@
 /**
- * @file tb_soc_timer.cpp
+ * @file tb_soc_top_timer.cpp
  * @brief Verilator C++ testbench: SoC timer interrupt verification
  *
  * Tests that the Omni-RISC APU SoC timer interrupt works correctly.
@@ -27,7 +27,7 @@
  *   - Firmware is pre-loaded (via $readmemh or ROM) and boots on reset
  *
  * Build (example):
- *   verilator --cc soc_top.v --exe tb_soc_timer.cpp --trace
+ *   verilator --cc soc_top.v --exe tb_soc_top_timer.cpp --trace
  *   make -C obj_dir -f Vsoc_top.mk
  *   ./obj_dir/Vsoc_top
  */
@@ -48,11 +48,11 @@
 /** How many cycles to hold reset asserted. */
 static const uint64_t RESET_CYCLES  = 20;
 
+/** Required toggles on gpio_out[0] to PASS. */
+static const int      REQUIRED_TOGGLES = 3;
+
 /** Maximum simulation cycles before declaring FAIL (timeout). */
 static const uint64_t MAX_CYCLES    = 500000;
-
-/** Number of gpio_out[0] toggles required to declare PASS. */
-static const int REQUIRED_TOGGLES   = 3;
 
 // ===========================================================================
 // Main testbench
@@ -69,22 +69,17 @@ int main(int argc, char **argv) {
 
     VerilatedVcdC *tfp = new VerilatedVcdC;
     dut->trace(tfp, 99);
-    tfp->open("tb_soc_timer.vcd");
+    tfp->open("tb_soc_top_timer.vcd");
 
     // -----------------------------------------------------------------------
     // Simulation variables
     // -----------------------------------------------------------------------
-    uint64_t cycle      = 0;
-    int      toggle_cnt = 0;
-
-    // Previous value of gpio_out[0], used to detect edges.
-    // Initialised to 0 because that is the expected reset value.
-    uint8_t  prev_gpio0 = 0;
-
-    // Record the cycle at which each toggle happens for period analysis.
-    std::vector<uint64_t> toggle_cycles;
-
+    uint64_t cycle = 0;
     bool test_passed = false;
+
+    int toggle_cnt = 0;
+    uint8_t gpio_prev = 0xFF;   // init to something that guarantees first edge
+    std::vector<uint64_t> toggle_cycles;
 
     // -----------------------------------------------------------------------
     // Initial pin state
@@ -112,27 +107,20 @@ int main(int argc, char **argv) {
             dut->reset = 0;
             printf("[TB] Reset released at cycle %llu\n",
                    (unsigned long long)cycle);
+            // capture initial gpio state after reset
+            gpio_prev = dut->gpio_out & 0xFF;
         }
 
-        // Sample gpio_out[0] on rising edge of clk
-        uint8_t cur_gpio0 = dut->gpio_out & 0x01;
-
-        // Detect a toggle (rising or falling edge on gpio_out[0])
-        if (cycle > RESET_CYCLES && cur_gpio0 != prev_gpio0) {
+        // Monitor gpio_out[0] for toggles
+        uint8_t gpio_now = dut->gpio_out & 0xFF;
+        if ((gpio_now ^ gpio_prev) & 0x1) {
             toggle_cnt++;
             toggle_cycles.push_back(cycle);
-            printf("[TB] gpio_out[0] toggled to %d at cycle %llu "
-                   "(toggle #%d)\n",
-                   (int)cur_gpio0,
-                   (unsigned long long)cycle,
-                   toggle_cnt);
-
-            if (toggle_cnt >= REQUIRED_TOGGLES) {
-                test_passed = true;
-                break;
-            }
+            printf("[TB] Toggle %d at cycle %llu (gpio_out = 0x%02X)\n",
+                   toggle_cnt, (unsigned long long)cycle, gpio_now);
+            if (toggle_cnt >= REQUIRED_TOGGLES) test_passed = true;
         }
-        prev_gpio0 = cur_gpio0;
+        gpio_prev = gpio_now;
 
         // Falling edge
         dut->clk = 0;
@@ -140,28 +128,21 @@ int main(int argc, char **argv) {
         tfp->dump(cycle * 20 + 10);
 
         cycle++;
+
+        if (test_passed) break;
     }
 
     // -----------------------------------------------------------------------
-    // Period analysis (if we got multiple toggles)
-    // -----------------------------------------------------------------------
-    if (toggle_cycles.size() >= 2) {
-        printf("[TB] -------------------------------------------\n");
-        printf("[TB] Toggle period analysis:\n");
-        for (size_t i = 1; i < toggle_cycles.size(); i++) {
-            uint64_t delta = toggle_cycles[i] - toggle_cycles[i - 1];
-            printf("[TB]   Toggle %zu → %zu: %llu cycles\n",
-                   i, i + 1, (unsigned long long)delta);
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Results
+    // Check result
     // -----------------------------------------------------------------------
     printf("[TB] -------------------------------------------\n");
     printf("[TB] Simulation ended at cycle %llu\n", (unsigned long long)cycle);
     printf("[TB] Total toggles observed: %d / %d required\n",
            toggle_cnt, REQUIRED_TOGGLES);
+    for (size_t i = 0; i < toggle_cycles.size(); ++i) {
+        printf("[TB]   Toggle %zu at cycle %llu\n", i + 1,
+               (unsigned long long)toggle_cycles[i]);
+    }
 
     if (test_passed) {
         printf("[TB] *** PASS ***  Timer interrupt toggling gpio_out[0] "

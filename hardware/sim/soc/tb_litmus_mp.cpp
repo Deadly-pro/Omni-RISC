@@ -18,7 +18,7 @@
 #include "Vdual_core_top_dual_core_top.h"
 #include "Vdual_core_top_cpu_top__Dz1_U1_S1.h"
 #include "Vdual_core_top_instr_bram.h"
-#include "Vdual_core_top_data_bram.h"
+#include "Vdual_core_top_data_bram__Mz1.h"
 #include "Vdual_core_top_fetch_stage__U1.h"
 #include "Vdual_core_top_pc_gen.h"
 #include "verilated.h"

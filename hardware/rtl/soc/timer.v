@@ -18,7 +18,7 @@ module timer (
     input         pbus_read,
     output [31:0] pbus_rdata,
 
-    output reg    mtip
+    output       mtip
 );
     wire sel = (pbus_addr[31:24] == 8'h02);          // 0x02000000 region
 
