@@ -4,9 +4,10 @@
 #   make compliance               — Run RISC-V compliance tests
 #   make firmware                 — Cross-compile all firmware
 #   make synth                    — Run Vivado synthesis
+#   make impl                     — Run Vivado place+route (needs make synth first)
 #   make clean                    — Remove build artifacts
 
-.PHONY: sim compliance firmware synth clean help
+.PHONY: sim compliance firmware synth impl clean help
 
 SHELL := /bin/bash
 SIM_DIR := hardware/sim
@@ -41,6 +42,10 @@ synth:
 	$(MAKE) -C $(FW_DIR) APP=benchmark_gpu
 	python3 scripts/gpu_asm.py firmware/gpu_kernels/gpu_demo.S -o firmware/gpu_kernels/gpu_demo.hex
 	@cd $(VIVADO_DIR) && $(VIVADO) -mode batch -source synth.tcl
+
+impl:
+	@cd $(VIVADO_DIR) && test -f reports/synth.dcp || { echo "run 'make synth' first"; exit 1; }
+	@cd $(VIVADO_DIR) && $(VIVADO) -mode batch -source impl.tcl
 
 clean:
 	rm -rf obj_dir/ *.vcd *.fst
