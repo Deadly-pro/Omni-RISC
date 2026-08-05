@@ -1,0 +1,78 @@
+digraph apu {
+  rankdir=LR; bgcolor="#ffffff";
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10, penwidth=1.2, margin="0.14,0.09"];
+  edge [color="#555555", penwidth=1.0, arrowsize=0.7];
+  labeljust="l";
+  label=<<b>Omni-RISC APU — architecture</b> <font point-size="9">(generated from the RTL hierarchy — solid edges are instantiations, dashed edges are coherence relationships)</font>>;
+  subgraph cluster_apu {
+    label="Synthesized APU (soc_top)"; style="rounded,dashed"; color="#999999"; fontsize=11;
+}
+  subgraph cluster_cohere {
+    label="Coherence research rig (dual_core_top)"; style="rounded,dashed"; color="#999999"; fontsize=11;
+}
+  "soc_top" -> "cpu_top" [label="u_cpu", fontsize=8];
+  "soc_top" -> "gpu_top" [label="u_gpu", fontsize=8];
+  "soc_top" -> "uart" [label="u_uart", fontsize=8];
+  "soc_top" -> "timer" [label="u_timer", fontsize=8];
+  "soc_top" -> "gpio" [label="u_gpio", fontsize=8];
+  "cpu_top" -> "fetch_stage" [fontsize=8];
+  "cpu_top" -> "decode_stage" [fontsize=8];
+  "cpu_top" -> "exec_stage" [fontsize=8];
+  "cpu_top" -> "mem_stage" [fontsize=8];
+  "cpu_top" -> "wb_stage" [fontsize=8];
+  "cpu_top" -> "hazard_unit" [fontsize=8];
+  "fetch_stage" -> "instr_bram" [label="instr_bram1", fontsize=8];
+  "mem_stage" -> "data_bram" [label="u_dbram", fontsize=8];
+  "gpu_top" -> "gpu_cmd_proc" [label="u_cmd", fontsize=8];
+  "gpu_top" -> "warp_scheduler" [label="u_sched", fontsize=8];
+  "gpu_top" -> "gpu_fetch" [label="u_fetch", fontsize=8];
+  "gpu_top" -> "gpu_decode" [label="u_dec", fontsize=8];
+  "gpu_top" -> "exec_lane" [label="u_lane", fontsize=8];
+  "dual_core_top" -> "core0" [label="u_core0", fontsize=8];
+  "dual_core_top" -> "core1" [label="u_core1", fontsize=8];
+  "dual_core_top" -> "l1_dcache_msi" [label="snoop bus", fontsize=8];
+  "dual_core_top" -> "data_bram" [label="u_shared_dbram", fontsize=8];
+  "dual_core_top" -> "pbus_arbiter" [label="u_arbiter", fontsize=8];
+  "core0" -> "l1_dcache_msi" [fontsize=8];
+  "core1" -> "l1_dcache_msi" [fontsize=8];
+  "l1_dcache_msi" -> "data_bram" [label="backing store", style="dashed" color="#b0b0b0", fontsize=8];
+  "soc_top" [label="APU — soc_top
+(RV32IM CPU + SIMT GPU, pbus SoC)", fillcolor="#c9daf8"];
+  "cpu_top" [label="RV32IM Core
+5-stage pipeline", fillcolor="#d9ead3"];
+  "gpu_top" [label="SIMT GPU
+(4 warps, 16-bit ISA)", fillcolor="#f4cccc"];
+  "uart" [label="UART", fillcolor="#ead1dc"];
+  "timer" [label="Timer / CLINT", fillcolor="#ead1dc"];
+  "gpio" [label="GPIO", fillcolor="#ead1dc"];
+  "fetch_stage" [label="Fetch", fillcolor="#eef2f7"];
+  "decode_stage" [label="Decode", fillcolor="#eef2f7"];
+  "exec_stage" [label="Execute", fillcolor="#eef2f7"];
+  "mem_stage" [label="Memory", fillcolor="#eef2f7"];
+  "wb_stage" [label="Write-back", fillcolor="#eef2f7"];
+  "hazard_unit" [label="Hazard Unit", fillcolor="#eef2f7"];
+  "instr_bram" [label="Instr
+BRAM", fillcolor="#fff2cc"];
+  "data_bram" [label="Data
+BRAM 256KB", fillcolor="#fff2cc"];
+  "gpu_cmd_proc" [label="Cmd
+Proc", fillcolor="#f9dcdc"];
+  "warp_scheduler" [label="Warp
+Sched", fillcolor="#f9dcdc"];
+  "gpu_fetch" [label="Fetch", fillcolor="#f9dcdc"];
+  "gpu_decode" [label="Decode", fillcolor="#f9dcdc"];
+  "exec_lane" [label="Exec Lanes
+×4", fillcolor="#f9dcdc"];
+  "dual_core_top" [label="MSI Coherence Rig — dual_core_top", fillcolor="#d9ead3"];
+  "core0" [label="CPU Core 0
+RV32IM", fillcolor="#eef2f7"];
+  "core1" [label="CPU Core 1
+RV32IM", fillcolor="#eef2f7"];
+  "l1_dcache_msi" [label="L1 D$ MSI
+4KB 2-way
+(snooping, WT)", fillcolor="#d9ead3"];
+  "data_bram" [label="Data
+BRAM 256KB", fillcolor="#fff2cc"];
+  "pbus_arbiter" [label="pbus
+Arbiter", fillcolor="#eef2f7"];
+}
