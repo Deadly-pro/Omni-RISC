@@ -90,7 +90,7 @@ make impl
 
 ## License
 
-_To be added._
+Apache-2.0 — see [LICENSE](LICENSE).
 
 ## References
 
