@@ -3,8 +3,6 @@ obj_dir*/
 *.o
 *.elf
 *.bin
-#Docs
-CLAUDE.md
 
 # Simulation outputs
 *.vcd
@@ -58,6 +56,7 @@ tests/riscv-arch-test/
 tests/compliance_work/
 # Local tooling / unrelated docs (not for public release)
 .claude/
+opencode.json
 HLS4ML_VFI_HANDOFF.md
 # Personal study-planning notes (not part of the project)
 revision.md

@@ -98,7 +98,7 @@ always @(posedge clk)begin
         // freeze — its EX/MEM capture is deferred, so clearing ID/EX here
         // would destroy the bundle before EX/MEM can capture it (the jump's
         // link value would be lost). It re-issues its redirect on release.
-        // do nothing ???
+        // Intentionally empty: the bundle is held as-is.
     end
     else if (flush)begin
         // normal branch/jump redirect → bubble the next instruction

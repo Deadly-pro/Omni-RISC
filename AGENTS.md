@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Project context for OpenCode sessions working in this repository.
+Development notes and verification conventions for this repository.
 
 ## Project
 
