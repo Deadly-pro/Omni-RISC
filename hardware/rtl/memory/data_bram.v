@@ -7,7 +7,7 @@
       input      [3:0]  wen,
       output reg [31:0] rdata          // registered read; valid one cycle after addr
   );
-  reg [31:0] mem [0:65535] /* verilator public */; // 256KB — sized for riscv-arch-test
+  (* ram_decomp = "power" *) reg [31:0] mem [0:65535] /* verilator public */; // 256KB — sized for riscv-arch-test
   initial begin
     if (MemFile != "") $readmemh(MemFile, mem);   // SoC firmware data image (word-indexed)
   end

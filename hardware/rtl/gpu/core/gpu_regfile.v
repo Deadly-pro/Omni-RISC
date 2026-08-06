@@ -19,12 +19,9 @@ module gpu_regfile (
     input         rd_write_en
 );
     reg [127:0] regs [0:7];
-    integer i;
 
     always @(posedge clk) begin
-        if (reset) begin
-            for (i = 0; i < 8; i = i + 1) regs[i] <= 128'b0;
-        end else if (rd_write_en && rd_addr != 3'b0) begin
+        if (rd_write_en && rd_addr != 3'b0) begin
             regs[rd_addr] <= rd_data;
         end
     end

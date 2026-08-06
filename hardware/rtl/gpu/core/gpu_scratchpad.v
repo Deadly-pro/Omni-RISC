@@ -32,30 +32,39 @@ module gpu_scratchpad (
     reg [31:0] bank1 [0:255] /*verilator public*/;
     reg [31:0] bank2 [0:255] /*verilator public*/;
     reg [31:0] bank3 [0:255] /*verilator public*/;
-    integer i;
+
+    // One write port per bank (distributed-RAM inferable): the lane write port
+    // is shared with the host window — host takes priority, and the coherence
+    // protocol guarantees the two never legitimately collide (host writes
+    // inputs before launch, reads results after halt). No reset: BRAM/LUTRAM
+    // cannot be reset, and write-before-read is guaranteed by the protocol.
 
     always @(posedge clk) begin
-        if (reset) begin
-            for (i = 0; i < 256; i = i + 1) begin
-                bank0[i] <= 32'b0; bank1[i] <= 32'b0;
-                bank2[i] <= 32'b0; bank3[i] <= 32'b0;
-            end
-        end else begin
-            if (host_wen) begin
-                case (host_wbank)
-                    2'd0: bank0[host_waddr] <= host_wdata;
-                    2'd1: bank1[host_waddr] <= host_wdata;
-                    2'd2: bank2[host_waddr] <= host_wdata;
-                    2'd3: bank3[host_waddr] <= host_wdata;
-                endcase
-            end
-            if (write_en) begin
-                bank0[waddr[7:0]]   <= wdata[31:0];
-                bank1[waddr[15:8]]  <= wdata[63:32];
-                bank2[waddr[23:16]] <= wdata[95:64];
-                bank3[waddr[31:24]] <= wdata[127:96];
-            end
-        end
+        if (host_wen && host_wbank == 2'd0)
+            bank0[host_waddr] <= host_wdata;
+        else if (write_en)
+            bank0[waddr[7:0]] <= wdata[31:0];
+    end
+
+    always @(posedge clk) begin
+        if (host_wen && host_wbank == 2'd1)
+            bank1[host_waddr] <= host_wdata;
+        else if (write_en)
+            bank1[waddr[15:8]] <= wdata[63:32];
+    end
+
+    always @(posedge clk) begin
+        if (host_wen && host_wbank == 2'd2)
+            bank2[host_waddr] <= host_wdata;
+        else if (write_en)
+            bank2[waddr[23:16]] <= wdata[95:64];
+    end
+
+    always @(posedge clk) begin
+        if (host_wen && host_wbank == 2'd3)
+            bank3[host_waddr] <= host_wdata;
+        else if (write_en)
+            bank3[waddr[31:24]] <= wdata[127:96];
     end
 
     assign rdata[31:0]   = bank0[raddr[7:0]];

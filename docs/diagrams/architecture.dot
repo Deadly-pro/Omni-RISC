@@ -28,6 +28,8 @@ digraph apu {
   "gpu_top" -> "gpu_fetch" [label="u_fetch", fontsize=8];
   "gpu_top" -> "gpu_decode" [label="u_dec", fontsize=8];
   "gpu_top" -> "exec_lane" [label="u_lane", fontsize=8];
+  "gpu_cmd_proc" -> "exec_lane" [label="shared-memory
+window", style="dashed" color="#b0b0b0", fontsize=8];
   "dual_core_top" -> "core0" [label="u_core0", fontsize=8];
   "dual_core_top" -> "core1" [label="u_core1", fontsize=8];
   "dual_core_top" -> "l1_dcache_msi" [label="snoop bus", fontsize=8];

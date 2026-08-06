@@ -13,7 +13,10 @@ Development notes and verification conventions for this repository.
 - **D 2-core coherence: DONE** — snooping MSI, LR/SC spinlock (tb_dual_spin: counter→1000, no lost updates), litmus MP+SB 200/200 each.
 - **E SIMT GPU: DONE** — 7/7 TBs, tb_gpu_top_kernels 66/66 (vector_add/relu/matmul/conv2d across 4 warps).
 - **F coherent-APU: DONE** — shared-memory window: CPU writes kernel inputs into warp0's 4-bank scratchpad via `HOST_WIN`/`HOST_DATA` (`0x4000_2018`/`0x4000_201C`), launches over MMIO, polls `STATUS` (`+0x20`, low nibble = active_warps) to zero (release), reads results back over the same window (acquire). `tb_soc_gpu` now runs a real vector-add: CPU writes A/B → kernel computes C → readback verified `C = A + B` per lane. Remaining (deferred): flush/invalidate of GPU-facing data and a full unified kernel memory (kernel image is still flashed into IMEM at synth time, not pushed over pbus).
-- **G synth+measure: DONE** — `make synth` + `impl.tcl` green on Vivado 2026.1. Post-BRAM-fix: **6,270 LUTs (9.9%), LUT-as-Memory 0 (was 32,768/172% overflow), 64.5 BRAM tiles (47.8%), 10,720 FF, 18 DSP; impl setup WNS +1.305ns @50MHz → Fmax ≈ 53.5 MHz** (critical path WB→EX forwarding into ALU operand mux). Bitstream off (no board). F is a stretch gated behind it.
+- **G synth+measure: DONE** — `make synth` + `impl.tcl` green on Vivado 2026.1. **Synth: 6,717 LUTs (10.6%), 1,584 LUT-as-memory, 2,379 FF, 64.5 BRAM tiles (47.8%), 15 DSP. Impl (place+route): 7,516 LUTs (11.9%), 2,410 FF, 64.5 BRAM, 15 DSP; WNS +0.823ns @50MHz → Fmax ≈ 52.6 MHz** (critical path `mem_wb_rdata` → EX ALU result, 14 logic levels incl. 3 DSP48E1). Bitstream off (no board).
+  - **Warning on the OLD numbers:** the prior "6,270 LUTs / 10,720 FF / 18 DSP / WNS +1.305" was an **artifact** — the old `gpu_demo.S` was an all-constant kernel (LDI/ADD chain → `sp[0]=42`), so Vivado constant-folded the entire GPU datapath AND its 128Kb of storage (regfile + scratchpad), and "impl" was never actually run (that WNS was the synth timing report). The numbers above are the first honest full-APU measurement with a real data-dependent kernel (vector-add reads A/B from scratchpad).
+  - **GPU memories must stay RAM-inferable:** `gpu_regfile` and `gpu_scratchpad` have **no reset** (BRAM/LUTRAM can't be reset) and the scratchpad uses **one write port per bank** (host write shares the lane port with host priority — the coherence protocol guarantees write-before-read, no collision). Re-adding a reset loop or a second write port flattens them to FFs/muxes → GPU explodes to ~54K LUTs (regfile 35,841 + scratchpad 17,474 + 32,768 FF).
+  - `data_bram` needs `(* ram_decomp = "power" *)`: the 256KB array cascades 64 RAMB36E1s deep and otherwise trips place_design DRC **REQP-1962** (ADDRARDADDR[15] tie-off mismatch in the cascade chain).
 
 **Scope guard (do not reintroduce):** OoO/ROB/rename/scoreboard/dual-issue/branch-predict (archived on `ooo-scope-archive`); MESI/write-back/4-core/directory coherence (MSI/write-through/2-core only); MMU/virtual-memory/Linux (M-mode + bare-metal scheduler only).
 
@@ -83,7 +86,7 @@ Direct testbench invocation (more control than `make sim`):
 
 - `make synth` = build `benchmark_gpu` firmware + assemble `gpu_demo.hex`, then `vivado -mode batch -source hardware/vivado/synth.tcl` (top `soc_top`, part `xc7a100tcsg324-1`, 50 MHz from `hardware/constraints/artix7.xdc`). Reports → `hardware/vivado/reports/{synth_utilization,synth_timing}.rpt`, netlist → `synth.dcp`.
 - `synth.tcl` stages the real firmware into the run dir as `program.hex`/`gpu_demo.hex`; results are only meaningful with a non-empty image (see the constant-fold note above).
-- Implementation (place+route → Fmax, bitstream) is the next step: `vivado -mode batch -source hardware/vivado/impl.tcl` (requires `synth.dcp`; `write_bitstream` needs real pin constraints in the xdc).
+- Implementation (place+route → Fmax, bitstream): `vivado -mode batch -source hardware/vivado/impl.tcl` (requires `synth.dcp`; proven green, see Phase G numbers above; `write_bitstream` needs real pin constraints in the xdc).
 
 ## Repository layout (non-obvious pieces)
 

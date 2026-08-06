@@ -118,6 +118,11 @@ def main():
           ("gpu_top", "gpu_fetch", "u_fetch", "solid"),
           ("gpu_top", "gpu_decode", "u_dec", "solid"),
           ("gpu_top", "exec_lane", "u_lane", "solid")]
+    # shared-memory window (Phase F): the CPU writes kernel inputs into
+    # warp0's scratchpad and reads results back through gpu_cmd_proc's host
+    # window ports, which drive the exec lanes directly. Coherence edge,
+    # dashed.
+    S += [("gpu_cmd_proc", "exec_lane", "shared-memory\nwindow", "dashed")]
     # ---- Coherence rig cluster ----
     for c in ("cpu_top", "cpu_top", "data_bram", "pbus_arbiter"):
         pass

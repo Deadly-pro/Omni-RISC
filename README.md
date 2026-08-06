@@ -12,7 +12,7 @@ A **RISC-V Accelerated Processing Unit** — an RV32IM scalar CPU fused with a S
 - **Coherent 2-core research rig** — snooping MSI D-cache (write-through, write-invalidate), LR/SC spinlock, passed MP + SB litmus tests
 - **SIMT GPU** — 4 warps × 4 lanes, 16-bit SIMT ISA, warp scheduler with latency hiding, scratchpad, vector/matmul/conv kernels
 - **SoC** — UART, timer/CLINT, GPIO, pbus MMIO decode, bare-metal firmware + scheduler
-- **Fits on the board** — synthesis/implementation on XC7A100T: **6,270 LUTs (9.9%), 0 LUT-mem, 64.5 BRAM tiles, 18 DSP; 50 MHz timing met → Fmax ≈ 53.5 MHz**
+- **Fits on the board** — synthesis/implementation on XC7A100T: **7,516 LUTs (11.9%) incl. 1,580 LUT-as-memory, 2,410 FF, 64.5 BRAM tiles, 15 DSP; 50 MHz timing met (WNS +0.823ns) → Fmax ≈ 52.6 MHz**
 - **Compliance** — riscv-arch-test rv32im: **53/54** (1 skip, Zifencei `fence.i`: split I/D BRAMs)
 
 ## Architecture
@@ -20,6 +20,7 @@ A **RISC-V Accelerated Processing Unit** — an RV32IM scalar CPU fused with a S
 - **CPU**: RV32IM, 5-stage in-order pipeline, full forwarding + hazard detection, M-extension, M-mode CSRs + traps
 - **Coherence rig** (`dual_core_top`): two cores sharing one `data_bram` through a snooping MSI D-cache and pbus arbiter — the coherence experiments that the APU's coarse-grained GPU sync builds on
 - **GPU**: SIMT engine (4 warps × 4 lanes), INT ALU, scratchpad memory, warp scheduler with latency hiding
+- **CPU↔GPU shared-memory window** (Phase F): the CPU writes kernel inputs into warp0's scratchpad and reads results back through `gpu_cmd_proc` host registers — no copies, coarse-grained coherence at kernel boundaries
 - **Bus**: peripheral bus (pbus) with MMIO decode — CPU ↔ UART/timer/GPIO ↔ GPU
 - **Target**: Xilinx Artix-7 (XC7A100T), Vivado 2026.1 synthesis flow
 
@@ -32,7 +33,7 @@ A **RISC-V Accelerated Processing Unit** — an RV32IM scalar CPU fused with a S
 | L1 caches | tb_cache 14/14, tb_icache 27/27 |
 | MSI coherence | tb_dual_spin (counter → 1000, no lost updates), litmus MP + SB 200/200 each |
 | GPU kernels | tb_gpu_top_kernels 66/66 (vector_add, relu, matmul, conv2d) |
-| SoC end-to-end | tb_soc_gpu: CPU launches GPU over pbus, reads result 42, firmware prints `PASS` |
+| SoC end-to-end | tb_soc_gpu: CPU writes A/B into GPU scratchpad, launches vector-add kernel over pbus, reads C back — `C = A + B` per lane |
 
 ## Project Structure
 
