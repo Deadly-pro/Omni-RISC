@@ -45,20 +45,30 @@ Baud fixed: 115200 at a 50 MHz system clock (÷434).
 
 ### GPU (`hardware/rtl/gpu/gpu_top.v`, pbus slave)
 
-| Offset | Register       | Access | Notes |
-|--------|----------------|--------|-------|
-| `+0x00` | warp_pc[0]     | RW     | start address of warp 0's kernel |
-| `+0x04` | warp_pc[1]     | RW     | warp 1 (unused by single-kernel demo) |
-| `+0x08` | warp_pc[2]     | RW     | warp 2 |
-| `+0x0C` | warp_pc[3]     | RW     | warp 3 |
-| `+0x10` | LAUNCH         | W      | bit31 = go, bit[1:0] = warp id |
-| `+0x14` | RESULT         | R      | warp0 scratchpad word 0 (host readback) |
-| other  | STATUS         | R      | low 4 bits = active_warps bitmap |
+| Offset | Register     | Access | Notes |
+|--------|--------------|--------|-------|
+| `+0x00` | warp_pc[0]   | RW     | start address of warp 0's kernel |
+| `+0x04` | warp_pc[1]   | RW     | warp 1 (unused by single-kernel demo) |
+| `+0x08` | warp_pc[2]   | RW     | warp 2 |
+| `+0x0C` | warp_pc[3]   | RW     | warp 3 |
+| `+0x10` | LAUNCH       | W      | bit31 = go, bit[1:0] = warp id |
+| `+0x14` | RESULT       | R      | warp0 scratchpad word 0 (host readback) |
+| `+0x18` | HOST_WIN     | RW     | shared-memory window: `{bank[1:0], word[7:0]}` |
+| `+0x1C` | HOST_DATA    | RW     | window store (write) / load (read) |
+| `+0x20` | STATUS       | R      | low 4 bits = active_warps bitmap |
+
+The readback decode uses `pbus_addr[5:0]` so `+0x20` (STATUS) does not alias
+`+0x00`. Shared-memory window access (`HOST_WIN`/`HOST_DATA`) reads/writes
+warp0's 4-bank scratchpad: `bank` selects the SIMT sub-lane, `word` the word
+address within that bank.
 
 The CPU dispatches a kernel by writing `warp_pc[0]`, then `LAUNCH`, then polling
-STATUS until `active_warps == 0`, then reading RESULT. The kernel is flashed
-into GPU imem at synthesis time (`.IMEM_FILE` → `$readmemh`); pushing kernel hex
-over pbus is future unified-memory work.
+STATUS until `active_warps == 0`, then reading results. Kernel inputs are
+written into the scratchpad via HOST_WIN/HOST_DATA **before** LAUNCH (acquire
+for the GPU: stores land before the pbus write completes); polling STATUS to
+zero is the GPU's release. The kernel is flashed into GPU imem at synthesis
+time (`.IMEM_FILE` → `$readmemh`); pushing kernel hex over pbus is future
+unified-memory work.
 
 ## Firmware agreement
 

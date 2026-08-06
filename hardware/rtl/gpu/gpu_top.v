@@ -43,6 +43,14 @@ module gpu_top #(
     wire [31:0] cmd_warp_pc;
     wire [1:0]  cmd_warp_id;
     wire        cmd_launch;
+    // shared-memory window: CPU writes kernel inputs / reads results in
+    // warp0's scratchpad through gpu_cmd_proc host registers.
+    wire [7:0]  host_raddr;
+    wire [1:0]  host_wbank;
+    wire [7:0]  host_waddr;
+    wire [31:0] host_wdata;
+    wire        host_wen;
+    wire [127:0] host_rdata0;
 
     gpu_cmd_proc u_cmd (
         .clk(clk),
@@ -57,7 +65,12 @@ module gpu_top #(
         .cmd_warp_id(cmd_warp_id),
         .cmd_launch(cmd_launch),
         .active_warps(active_warps),
-        .result(gpu_result)
+        .host_rdata(host_rdata0),
+        .host_raddr(host_raddr),
+        .host_wbank(host_wbank),
+        .host_waddr(host_waddr),
+        .host_wdata(host_wdata),
+        .host_wen(host_wen)
     );
 
     // ---- decode ----
@@ -129,8 +142,6 @@ module gpu_top #(
     wire [31:0]  lsu_addr   [0:3];
     wire [127:0] sp_rd_unused [0:3];
     wire [127:0] host_rdata [0:3];
-    // host result readback for the SoC: warp0 scratchpad word 0 (lane0)
-    wire [31:0] gpu_result = host_rdata[0][31:0];
 
     generate
         for (w = 0; w < 4; w = w + 1) begin : g_warp
@@ -153,8 +164,13 @@ module gpu_top #(
                 .sp_wdata(rs2_data[w]),
                 .sp_raddr(lsu_addr[w]),
                 .sp_rdata(sp_rd_unused[w]),
-                .host_raddr(8'b0),          // host result = scratchpad word 0
+                // shared-memory window lives in warp0's scratchpad
+                .host_raddr(host_raddr),
                 .host_rdata(host_rdata[w]),
+                .host_wbank(host_wbank),
+                .host_waddr(host_waddr),
+                .host_wdata(host_wdata),
+                .host_wen(w == 0 ? host_wen : 1'b0),
                 .alu_result(alu_result[w]),
                 .lsu_addr(lsu_addr[w]),
                 .ld_data_out(ld_data[w]),
@@ -162,6 +178,8 @@ module gpu_top #(
             );
         end
     endgenerate
+
+    assign host_rdata0 = host_rdata[0];
 
     // ---- completion: 1 cycle after issue ----
     always @(posedge clk) begin

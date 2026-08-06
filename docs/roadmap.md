@@ -120,7 +120,7 @@ The caches are wired into the pipeline behind a `USE_CACHES` parameter (default 
 
 ## Phase F — Coherent-APU integration  *(STRETCH — the capstone)*
 - **F1.** Unified shared memory + shared coherence/ordering point (shared LLC or memory-side directory).
-- *Partial (Aug 2026):* the MMIO command path is in — `gpu_top` is a pbus slave @0x40002000 in `soc_top`, CPU dispatches via `drivers/gpu.c`, reads a result back through the `+0x14` scratchpad readback; verified end-to-end in `tb_soc_gpu` (CPU → launch → idle poll → read 42 → firmware PASS). Still missing for real coherence: unified kernel memory, flush/invalidate, acquire/release.
+- *Partial (Aug 2026):* the shared-memory **window** is in — the CPU reads/writes warp0's scratchpad over `HOST_WIN`/`HOST_DATA` (`+0x18`/`+0x1C`, pbus slave @0x40002000), launches via `drivers/gpu.c`, polls `STATUS` (`+0x20`) to zero (release), reads results back through the same window (acquire). Verified end-to-end in `tb_soc_gpu`: CPU writes A/B → vector_add kernel computes C → per-lane readback `C = A + B` → firmware PASS. Still missing for full coherence: a unified kernel memory (kernel image is still flashed into IMEM at synth time), and CPU↔GPU flush/invalidate beyond the window.
 - **F2.** Cache **flush/invalidate** ops for CPU D$ and GPU caches.
 - **F3.** **Acquire/release handshake** at kernel launch/completion in `gpu_cmd_proc` + driver.
 - **F4.** End-to-end demo: CPU allocates a buffer in unified memory, writes+flushes, launches a GPU kernel via MMIO, GPU computes+flushes, CPU invalidates+reads — **coherent, with no manual copies**.

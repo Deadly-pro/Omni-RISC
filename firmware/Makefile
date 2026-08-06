@@ -9,7 +9,7 @@ LD      := $(PREFIX)ld
 OBJCOPY := $(PREFIX)objcopy
 OBJDUMP := $(PREFIX)objdump
 
-CFLAGS  := -march=rv32im_zicsr_zifencei -mabi=ilp32 -Os -Wall -ffreestanding -nostdlib
+CFLAGS  := -march=rv32im_zicsr_zifencei -mabi=ilp32 -Os -Wall -ffreestanding -nostdlib -MMD -MP
 LDFLAGS := -T boot/linker.ld -nostdlib
 
 # Source files
@@ -21,6 +21,10 @@ APP_SRCS    := apps/hello.c apps/timer.c
 BOOT_OBJ    := $(BOOT_SRCS:.c=.o)
 BOOT_OBJ    := $(BOOT_OBJ:.S=.o)
 DRIVER_OBJ  := $(DRIVER_SRCS:.c=.o)
+DEPS        := $(BOOT_OBJ:.o=.d) $(DRIVER_OBJ:.o=.d)
+
+# Include auto-generated header dependencies (MMD/MP above)
+-include $(DEPS) apps/$(APP).d
 
 # Default app
 APP ?= hello

@@ -25,9 +25,13 @@ module exec_lane (
     input         sp_write_en,
     output [127:0] sp_rdata,
 
-    // host readback port (SoC reads a scratchpad word index across all 4 banks)
+    // host window (SoC reads/writes a scratchpad word index)
     input  [7:0]  host_raddr,
     output [127:0] host_rdata,
+    input  [1:0]  host_wbank,
+    input  [7:0]  host_waddr,
+    input  [31:0] host_wdata,
+    input         host_wen,
 
     // outputs
     output [127:0] alu_result,
@@ -84,7 +88,11 @@ module exec_lane (
         .wdata(sp_wdata),
         .write_en(sp_write_en),
         .host_raddr(host_raddr),
-        .host_rdata(host_rdata)
+        .host_rdata(host_rdata),
+        .host_wbank(host_wbank),
+        .host_waddr(host_waddr),
+        .host_wdata(host_wdata),
+        .host_wen(host_wen)
     );
 
     assign rs2_out = rs2_data;

@@ -66,3 +66,4 @@ docs/reading_notes.md
 hardware/vivado/clockInfo.txt
 hardware/vivado/*.jou
 hardware/vivado/*.backup.*
+*.d

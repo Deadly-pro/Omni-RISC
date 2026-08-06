@@ -16,10 +16,17 @@ module gpu_scratchpad (
     input  [127:0] wdata,
     input         write_en,
 
-    // host read port — lets the CPU/SoC read one word index across all 4 banks
-    // (host_rdata[31:0] = bank0 word host_raddr, [63:32]=bank1, ...). Combinational.
+    // host window — lets the CPU/SoC access scratchpad memory directly.
+    // Read: one word index across all 4 banks (host_rdata[31:0]=bank0,
+    // [63:32]=bank1, ...). Combinational.
     input  [7:0]  host_raddr,
-    output [127:0] host_rdata
+    output [127:0] host_rdata,
+    // Write: single 32-bit word into one bank (coarse-grained shared memory —
+    // CPU writes kernel inputs before launch, reads results after halt).
+    input  [1:0]  host_wbank,
+    input  [7:0]  host_waddr,
+    input  [31:0] host_wdata,
+    input         host_wen
 );
     reg [31:0] bank0 [0:255] /*verilator public*/;
     reg [31:0] bank1 [0:255] /*verilator public*/;
@@ -33,11 +40,21 @@ module gpu_scratchpad (
                 bank0[i] <= 32'b0; bank1[i] <= 32'b0;
                 bank2[i] <= 32'b0; bank3[i] <= 32'b0;
             end
-        end else if (write_en) begin
-            bank0[waddr[7:0]]   <= wdata[31:0];
-            bank1[waddr[15:8]]  <= wdata[63:32];
-            bank2[waddr[23:16]] <= wdata[95:64];
-            bank3[waddr[31:24]] <= wdata[127:96];
+        end else begin
+            if (host_wen) begin
+                case (host_wbank)
+                    2'd0: bank0[host_waddr] <= host_wdata;
+                    2'd1: bank1[host_waddr] <= host_wdata;
+                    2'd2: bank2[host_waddr] <= host_wdata;
+                    2'd3: bank3[host_waddr] <= host_wdata;
+                endcase
+            end
+            if (write_en) begin
+                bank0[waddr[7:0]]   <= wdata[31:0];
+                bank1[waddr[15:8]]  <= wdata[63:32];
+                bank2[waddr[23:16]] <= wdata[95:64];
+                bank3[waddr[31:24]] <= wdata[127:96];
+            end
         end
     end
 

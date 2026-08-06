@@ -85,7 +85,7 @@ make impl
 | C | L1 caches (I$ direct-mapped, D$ 2-way write-through) | ✅ |
 | D | 2-core snooping MSI coherence, LR/SC spinlock, litmus | ✅ |
 | E | SIMT GPU: scheduler, lanes, kernels, SoC integration | ✅ |
-| F | Coherent-APU integration (unified memory, flush/invalidate) | 🔧 in progress |
+| F | Coherent-APU integration (shared scratchpad window, acquire/release) | ✅ |
 | G | Synthesis + timing closure on Artix-7 (Vivado) | ✅ |
 
 ## License
