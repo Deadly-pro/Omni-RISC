@@ -26,7 +26,7 @@ static const uint64_t SYS_CLK_HZ   = 50000000ULL;
 static const uint64_t BAUD_RATE    = 115200;
 static const uint64_t CLKS_PER_BIT = SYS_CLK_HZ / BAUD_RATE;
 static const uint64_t RESET_CYCLES = 20;
-static const uint64_t MAX_CYCLES   = 9000000ULL;
+static const uint64_t MAX_CYCLES   = 160000000ULL;
 static const int REQUIRED_A_TICKS  = 4;
 static const int REQUIRED_B_PRINTS = 2;
 

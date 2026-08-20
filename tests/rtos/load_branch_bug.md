@@ -1,9 +1,10 @@
 # Core bug: unsigned branch fed by a back-to-back load mis-evaluates
 
 ## Status
-**OPEN — reproducible on the RV32IM core in Verilator (2026-08-20).** Found
-during the FreeRTOS bring-up, which exposed it because the kernel's scheduler
-does priority-compare branches fed straight from memory loads.
+**FIXED (2026-08-20) — root cause confirmed at signal level, fix landed.**
+FreeRTOS on Omni-RISC now boots and preempts both tasks (tb_soc_rtos PASS,
+task A ticks 1-4, task B prints twice). Full regression green: tb_cpu_top
+83/83, tb_soc_gpu, tb_dual_spin, litmus MP/SB, compliance 53/54.
 
 ## Symptom
 A `bgeu`/`bltu` (unsigned branch) whose operands come from **two consecutive
@@ -33,37 +34,72 @@ lw a4, 44(a5)   ; pxCurrentTCB->uxPriority
 lw a5, 44(s0)   ; pxNewTCB->uxPriority
 bltu a5, a4     ; pick the highest-priority task
 ```
-The wrong evaluation makes the scheduler think the **idle task (prio 0)
-outranks task A (prio 2)**, so `xPortStartFirstTask` launches idle and the
-RTOS never runs a user task. That was the actual first bug behind the
-"scheduler runs idle forever" symptom.
+The wrong evaluation made the scheduler think the **idle task (prio 0)
+outranks task A (prio 2)**, so `xPortStartFirstTask` launched idle and the
+RTOS never ran a user task.
 
-## Root-cause hypothesis (not yet confirmed at signal level)
+## Root cause (confirmed at signal level)
 `data_bram`'s read is **registered** (`rdata <= mem[addr]`, Phase G BRAM fix),
-so a load's value is only valid in MEM/WB, not EX/MEM. The pipeline stalls the
-load-use consumer for **one** cycle (hazard_unit), and `forwarding_net`
-forwards distance-1 producers as `ex_mem_alu_result`. For a load this is the
-ALU's stale output, not the loaded data; the one-cycle stall is insufficient
-to cover the registered read's extra latency. Single-load `tb_cpu_top` CASE D
-passes (its `beq` uses the load result as `rs2`, and the mem_hold freezes the
-pipe differently), but the two-back-to-back-load pattern (dist-2 producer in
-flight on the same cycle as the dist-1 load) misses the stall and forwards a
-stale value into the branch comparator.
+so a load's value is only valid in MEM/WB, not EX/MEM. To cover the extra
+latency, `mem_stage`'s g_nocache path holds the load in MEM for one cycle via
+the `dbram_hold` toggle, driving `mem_stall` → `freeze`.
 
-## Fix direction (validate before applying)
-1. Make `forwarding_net` **not** forward `ex_mem_alu_result` when the distance-1
-   producer is a load (`ex_mem_mem_read`): a load's data is not ready in
-   EX/MEM.
-2. Make `hazard_unit` stall **two** cycles (or until the load reaches
-   MEM/WB) when the consumer target is a load — the registered read has an
-   extra cycle of latency that the current single-cycle stall does not cover.
+The failing window is a **load holding MEM while a second load sits in EX
+and its consumer (the branch) sits in IF/ID**:
 
-Fix candidates must be regression-checked against `tb_cpu_top` (83/83),
-`tb_soc_gpu`, `tb_dual_spin`, and compliance before landing.
+- Cycle N: L1 in MEM, `mem_hold=1` → `mem_stall=1` (pipeline frozen).
+  L2 (load) in EX, branch in IF/ID.
+- `hazard_unit` sees the branch's `rs1 == L2.rd` and L2 `mem_read=1` →
+  asserts the load-use `stall`.
+- `decode_stage`'s capture block had `if (reset || stall)` **before** the
+  `hold` branch: it injected a bubble into ID/EX **even though the pipeline
+  was frozen**. L2's `ex_mem_mem_read` (and reg_write) were cleared before
+  EX/MEM could ever capture them; the branch then compared a stale/zero
+  value. `mem_hold` itself stays high exactly one cycle, so this was purely
+  a priority bug in `decode_stage`, not a hold-counter bug.
+
+Previous attempts ruled out (do not re-try):
+1. `forwarding_net` change (don't forward `ex_mem_alu_result` when distance-1
+   producer is a load) — did NOT fix; the forward value was correct, the
+   load itself was being erased.
+2. `mem_stage` hold counter rework — broke boot (mem_hold stayed high).
+
+## The fix
+`hardware/rtl/cpu/core/decode_stage.v` — give `hold` priority over `stall`:
+
+```
+if (reset)         → bubble
+else if (hold)     → hold ID/EX bundle as-is   (was: else if (hold) after stall)
+else if (stall)    → hazard load-use bubble
+else if (flush)    → redirect bubble
+else               → capture
+```
+
+A pipeline freeze (div_stall / icache_miss / mem_hold) means the EX/MEM
+capture is deferred, so the ID/EX bundle must survive the cycle. The hazard
+stall re-asserts once the freeze releases, and L2 then advances to MEM with
+its `mem_read` intact. This is the same principle as the existing
+"hold over flush" fix (jump link value preservation), extended to the hazard
+stall.
+
+A secondary session artifact was also removed: the previous debug session's
+`$display` had accidentally *replaced* the `ex_mem_alu_result` capture in
+`exec_stage.v` (a debug print inline at L206), silently zeroing every ALU
+result and breaking boot (`result=4` instead of `0x40000004`). The capture
+line was restored; `$display` debug lines were removed entirely.
+
+## Validation
+- `make sim TB=soc/tb_soc_rtos` — PASS: banner, both xTaskCreate calls,
+  `curTCB=00010900` (task A, prio 2) retained, task A ticks 1-4 + task B
+  prints. NOTE: MAX_CYCLES was raised 9M → 160M in tb_soc_rtos.cpp; 9M
+  cycles at 50 MHz is only 180 ms, less than one 500 ms task-A delay.
+- `make sim TB=cpu/tb_cpu_top` — 83/83.
+- `make sim TB=soc/tb_soc_gpu` — GPU vector-add PASS.
+- `make sim TB=soc/tb_dual_spin` — 1001 increments, no lost updates.
+- `make sim TB=soc/tb_litmus_mp` / `tb_litmus_sb` — PASS.
+- `make compliance` — 53/54 (1 skip, Zifencei).
 
 ## Repro files
-- `firmware/apps/branchtest.c` — compiler-based battery (first version was
-  partially constant-folded; keep the volatile/runtime-value forms).
+- `firmware/apps/branchtest.c` — compiler-based battery.
 - `firmware/apps/loadbr.c` — minimal hand-assembled deterministic repro.
-- `hardware/sim/soc/tb_soc_rtos.cpp` — UART-capture harness; stage any hex as
-  `program.hex` in `obj_dir_tb_soc_rtos/`.
+- `hardware/sim/soc/tb_soc_rtos.cpp` — UART-capture harness.

@@ -70,8 +70,8 @@ regfile regfile1(
     .rs2_data(rs2_data)
 );
 always @(posedge clk)begin
-    if(reset||stall)begin
-        // reset / hazard load-use stall → inject a bubble
+    if(reset)begin
+        // reset → inject a bubble
         id_ex_pc<=0;
         id_ex_pc_plus4<=0;
         id_ex_imm<=0;
@@ -93,12 +93,36 @@ always @(posedge clk)begin
     end
     else if (hold)begin
         // Pipeline freeze (div_stall / cache refill / data_bram read hold):
-        // hold the ID/EX bundle EVEN IF a flush is pending. The flushing
-        // instruction (branch/jump) is still in EX and frozen by the same
-        // freeze — its EX/MEM capture is deferred, so clearing ID/EX here
+        // hold the ID/EX bundle EVEN IF a flush or hazard stall is pending. The
+        // flushing instruction (branch/jump) is still in EX and frozen by the
+        // same freeze — its EX/MEM capture is deferred, so clearing ID/EX here
         // would destroy the bundle before EX/MEM can capture it (the jump's
-        // link value would be lost). It re-issues its redirect on release.
+        // link value would be lost). Same for a hazard-stalled load: it is
+        // frozen in EX while the previous load holds MEM, so a bubble injected
+        // now would erase the load's mem_read before it ever reaches MEM. It
+        // re-issues its stall on release.
         // Intentionally empty: the bundle is held as-is.
+    end
+    else if (stall)begin
+        // hazard load-use stall → inject a bubble
+        id_ex_pc<=0;
+        id_ex_pc_plus4<=0;
+        id_ex_imm<=0;
+        id_ex_reg_write<=0;
+        id_ex_mem_read<=0;
+        id_ex_mem_write<=0;
+        id_ex_branch<=0;
+        id_ex_jump<=0;
+        id_ex_rs1_data<=0;
+        id_ex_rs2_data<=0;
+        id_ex_funct3<=0;
+        id_ex_is_mul_div<=0;
+        id_ex_is_atomic<=0;
+        id_ex_is_csr<=0;
+        id_ex_is_ecall<=0;
+        id_ex_is_ebreak<=0;
+        id_ex_is_mret<=0;
+        id_ex_illegal<=0;
     end
     else if (flush)begin
         // normal branch/jump redirect → bubble the next instruction

@@ -1,59 +1,36 @@
-# FreeRTOS bring-up — persistent dispatch bug
+# FreeRTOS bring-up — dispatch bug FIXED
 
-## Current state (end of deep-dive session)
-Everything builds and the kernel **boots to the scheduler**:
-`xTaskCreate` succeeds for both tasks; `pxCurrentTCB` = 0x11190 (task B, prio 1)
-right after creating A(prio 2) then B(prio 1). The scheduler therefore runs
-task B / idle as the first task and no user-task body ever executes
-("task A tick ..." never prints).
+## Current state (end of fix session)
+`make sim TB=soc/tb_soc_rtos` **PASSES**: banner prints, both xTaskCreate
+calls succeed, `pxCurrentTCB` stays task A (prio 2) after B (prio 1) is
+created, and the scheduler preempts both tasks — "task A tick 1..4" and
+"task B (lower prio)" x2, then the TB exits on the required counts.
 
-## Precise symptom
-Firmware-side debug is unambiguous:
-```
-xTaskCreate A=1 B=1   hA=00010900(prio2)  hB=00011190(prio1)  curTCB=00011190(prio1)
-```
-`pxCurrentTCB` should remain task A (prio 2) after B (prio 1) is created:
-the creator does `if(pxCurrentTCB->uxPriority <= pxNewTCB->uxPriority)` =
-`2 <= 1` = false → keep A. The CPU instead makes it B, i.e. the priority
-compare branch resolves wrong. This is **not** a FreeRTOS logic bug — it is a
-CPU hazard/timing bug in the registered-read data path for back-to-back loads.
+## Root cause (one paragraph)
+`decode_stage.v`'s ID/EX capture gave the hazard `stall` priority over the
+pipeline-freeze `hold`. With two back-to-back loads, the first load holds MEM
+(`mem_hold` → `mem_stall`), the second load sits frozen in EX, and the
+consumer branch in IF/ID triggers the load-use `stall` — so decode injected a
+bubble into ID/EX, erasing the second load's `mem_read` before EX/MEM could
+capture it. The priority is now `reset > hold > stall > flush > capture`, so a
+frozen bundle survives and the hazard stall re-asserts on release.
 
-## What was ruled out (CPU is otherwise verified)
-- riscv-arch-test compliance: still 53/54.
-- tb_cpu_top 83/83 (incl. load-use interlock + single-load->beq).
-- L1 caches, SoC-GPU, dual-core spinlock + litmus: all pass.
-- Hand micro-tests (`firmware/apps/mincase.c`) show the load->branch compare is
-  **flaky across gcc -Os register allocations**: the same source sometimes
-  passes, sometimes fails, confirming a marginal timing/hazard issue that only
-  fires for specific back-to-back `lw;lw;branch` instruction layouts.
+## Fix commit summary
+- `hardware/rtl/cpu/core/decode_stage.v`: `hold` now wins over `stall`.
+- `hardware/sim/soc/tb_soc_rtos.cpp`: MAX_CYCLES 9M → 160M (9M @50 MHz is
+  180 ms < one 500 ms task-A delay; the old budget could never pass).
+- Cleaned up: previous session's debug `$display` in exec_stage.v had
+  accidentally REPLACED the `ex_mem_alu_result` capture (zeroed every ALU
+  result, broke boot); restored + removed prints.
 
-## Attempted fixes (all reverted; core kept pristine)
-1. **Forwarding change** (`forwarding_net.v`: don't forward a distance-1 load's
-   `ex_mem_alu_result` — its address — as data). Theoretically correct
-   (a load's data is only valid at MEM/WB), but did NOT fix the micro-test.
-2. **Registered-read hold counter** (`mem_stage.v` g_nocache: per-load `ld_st`
-   counter instead of single `dbram_hold` toggle). BROKE BOOT (pipeline froze:
-   boot banner never printed), so reverted.
+## Ruled-out / do not re-try
+1. `forwarding_net` change (don't forward a distance-1 load's address as
+   data) — did NOT fix; the erased load, not the forward value, was the bug.
+2. `mem_stage` hold counter rework — broke boot (mem_hold stayed high).
+   `mem_hold` was never the problem: it fires exactly one cycle.
 
-Neither change is in the tree; `hardware/rtl/cpu/core/` is at commit 94c8358.
+## Regression evidence (all after the fix)
+- tb_cpu_top 83/83, tb_soc_gpu, tb_dual_spin (1001 increments), litmus
+  MP/SB, compliance 53/54 (1 skip Zifencei), tb_soc_rtos PASS.
 
-## Leading hypothesis (next-session starting point)
-The single-cycle load-use hazardous stall + the single `dbram_hold` toggle do
-not correctly cover a **2-cycle-latency registered BRAM read** when two loads
-are back-to-back and a branch consumes both results. The correct fix needs the
-pipeline to hold the load until its data is truly valid in MEM/WB, coordinated
-with the hazard stall — my counter attempt was on the right track but its
-`mem_hold` stayed high (froze boot); the counter transition/load-identity
-logic must be corrected. Best validated against the **deterministic** RTOS
-run (always fails identically) and the full regression, using a wave/parse on
-`load_rdata`/`mem_wb_rdata`/`ex_mem_mem_read`/`mem_hold` (all already marked
-public in a working VCD path — see notes below).
-
-## Working diagnostics you can trust
-- Firmware prints (`apps/rtos.c`): xTaskCreate results, task handles,
-  priorities, and pxCurrentTCB — reliable.
-- `tests/rtos/status.md` (original), `tests/rtos/load_branch_bug.md`.
-- VCD path verified: `tb_soc_rtos.cpp` can dump a VCD; `$var` lines are
-  `$var wire <width> <id> <ref> [range] $end`; multi-bit body lines are
-  `b<val><id>`, single-bit `0<id>`. Signals like `u_mem.mem_hold(S!)`,
-  `u_mem.load_rdata`, `u_wb.mem_wb_rdata(z!)` are traceable.
+Full details in `tests/rtos/load_branch_bug.md`.
