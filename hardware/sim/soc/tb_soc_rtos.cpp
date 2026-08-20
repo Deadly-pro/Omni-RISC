@@ -100,10 +100,17 @@ int main(int argc, char **argv)
             char c = (char)uart.rx_byte;
             if (c == '\r') { /* skip */ }
             else if (c == '\n') {
-                printf("[UART] %s\n", line.c_str());
                 if (line == "Omni-RISC APU v1.0") saw_banner = true;
-                else if (line.find("task A tick") == 0) a_ticks++;
-                else if (line == "task B (lower prio)") b_prints++;
+                else if (line.find("task A tick") == 0) {
+                    a_ticks++;
+                    printf("[TB] @%llu cycles: task A tick (cum %d)\n",
+                           (unsigned long long)cycle, a_ticks);
+                }
+                else if (line == "task B (lower prio)") {
+                    b_prints++;
+                    printf("[TB] @%llu cycles: task B print (cum %d)\n",
+                           (unsigned long long)cycle, b_prints);
+                }
                 line.clear();
             } else { line += c; }
             if (saw_banner && a_ticks >= REQUIRED_A_TICKS && b_prints >= REQUIRED_B_PRINTS) break;

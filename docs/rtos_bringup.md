@@ -69,21 +69,22 @@ Key findings:
 - `configISR_STACK_SIZE_WORDS 128` → port statically allocates the ISR stack
   (avoids needing a `__freertos_irq_stack_top` linker symbol).
 - `configSUPPORT_DYNAMIC_ALLOCATION 1` + `heap_4.c`.
+## Phase 1 — port bring-up  (DONE)
 
-## Phase 1 — port bring-up  (NEXT)
+Two tasks (A prio 2, B prio 1) + vTaskDelay; UART-decoding TB
+(tb_soc_rtos) captures banner, both xTaskCreate calls, scheduler start,
+and correct preemption. Gate: PASS.
 
-- New linker script: `.text` → 64K IMEM (0x0–0xFFFF), `.data/.bss/.heap`
-  → 256K DMEM window (0x1_0000+), ISR stack + task stacks in DMEM.
-- Boot flow: `boot.c` sets `mtvec` = `freertos_risc_v_trap_handler`
-  (replacing `_trap_handler`), calls `xPortStartScheduler()`, no return.
-- Milestone: `vTaskStartScheduler` + one task printing "FreeRTOS started"
-  every 500ms via `uart.c`. Gate: a UART-decoding TB captures banner + ticks.
+## Phase 2 — scheduler validation  (DONE)
 
-## Phase 2 — scheduler validation
-
-- Two tasks at different priorities + `vTaskDelay`; verify preemption.
-- Queue producer/consumer.
-- Gate: TB captures deterministic interleaving; tick accuracy vs `mtime`.
+- tb_soc_rtos PASS: task A ticks 1-4 at exactly 25,050,000 cycles apart
+  (500ms @ 50MHz, 50k cycles/tick), task B prints at 60,085,000 (1200ms).
+  `pxCurrentTCB` stays task A (prio 2) after B (prio 1) is created.
+- This milestone exposed a core pipeline bug (load;load;branch mis-eval);
+  fixed in decode_stage.v (hold > stall priority) — see
+  tests/rtos/load_branch_bug.md. Regression: tb_cpu_top 83/83, tb_soc_gpu,
+  tb_dual_spin, litmus MP/SB, compliance 53/54.
+- Queue producer/consumer: not yet (next).
 
 ## Phase 3 — interrupt depth
 
@@ -93,14 +94,3 @@ Key findings:
 
 - Measure context-switch cycles, tick jitter, ISR latency. Write up, update
   AGENTS.md. Preserve regression (tb_cpu_top, tb_dual_spin, tb_soc_gpu).
-
-## Build flags reference
-
-```
-CFG=firmware/rtos
-FREE=third_party/FreeRTOS
-INC="-I$FREE/include -I$FREE/portable/GCC/RISC-V -I$CFG -I$CFG/include"
-FLAGS="-march=rv32im_zicsr_zifencei -mabi=ilp32 -Os -Wall -ffreestanding -fno-builtin"
-# assembler needs the chip extension dir on its include path:
-EXT=$FREE/portable/GCC/RISC-V/chip_specific_extensions/RISCV_MTIME_CLINT_no_extensions
-```
