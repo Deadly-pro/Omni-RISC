@@ -263,6 +263,12 @@ if [[ "$TB_BASENAME" == tb_dual_spin ]]; then
     cp "$SPIN_HEX" "$OBJ_DIR/program.hex"
 fi
 
+# FreeRTOS bring-up test: build the rtos app and stage it as program.hex.
+if [[ "$TB_BASENAME" == tb_soc_rtos ]]; then
+    make -C "$PROJECT_ROOT/firmware" APP=rtos rtos.hex >/dev/null 2>&1
+    cp "$PROJECT_ROOT/firmware/rtos.hex" "$OBJ_DIR/program.hex"
+fi
+
 # APU GPU-dispatch test: stage the CPU firmware (benchmark_gpu) as program.hex
 # and the flashed GPU kernel as gpu_demo.hex (soc_top's gpu_top IMEM_FILE).
 if [[ "$TB_BASENAME" == tb_soc_gpu ]]; then
