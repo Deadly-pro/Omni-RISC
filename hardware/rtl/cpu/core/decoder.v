@@ -80,7 +80,7 @@ always @(*)begin
     7'b0110011:begin //R Type
                 reg_write=1; // write enable for rd
                 op_type=0; // type R
-                imm_type=5;//invaid type returns 0
+                imm_type=5;//invalid type returns 0
                 if(funct7==7'b0000000)begin
                    case(funct3)
                    3'b000:alu_op=0; //ADD

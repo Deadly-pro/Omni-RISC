@@ -27,7 +27,6 @@ module alu (
     output reg [31:0] result,
     output reg zero_flag
 );
-reg [31:0] temp;
 always @(*) begin
 result=32'b0;
 zero_flag=1'b0;

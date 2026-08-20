@@ -52,9 +52,9 @@ everything ───────────────────────
 
 ---
 
-## Phase A — Single scalar core to compliance  *(FLOOR — in progress)*
+## Phase A — Single scalar core to compliance  *(FLOOR — DONE)*
 
-Where we are: bring-up steps 1–5 done; memory subsystem (LSU + data_bram + WB aligner) done and verified; LUI/AUIPC operand-mux bug fixed; `tb_cpu_top` 24/24.
+Where we are: complete — riscv-arch-test rv32im **53/54** (1 skip, Zifencei `fence.i`: split I/D BRAMs), `tb_cpu_top` 83/83. Results in `docs/compliance_results.md`.
 
 - **A1. `forwarding_net`** ← *next*. Forward EX/MEM.rd→EX and MEM/WB.rd→EX. Kills the distance-1/2 RAW hazards currently hidden by hand-inserted NOPs.
 - **A2. `hazard_unit`**. Load-use stall (1 bubble; load result isn't ready until WB in this design), branch/jump flush. Then **delete the NOP crutches from the test programs** — that regression-proves forwarding + interlocks.
@@ -132,7 +132,7 @@ The caches are wired into the pipeline behind a `USE_CACHES` parameter (default 
 
 - **BRAM fit DONE (Aug 2026):** `data_bram` read is now registered (`always @(posedge clk) rdata <= mem[addr[17:2]]`), which lets Vivado map the 256KB arrays into BRAM instead of distributed RAM. Supporting pipeline-timing changes: `mem_stage` inserts a 1-cycle `mem_hold` per data-window load (`dbram_hold` toggle) and toggles `dc_mem_ack` for dcache refills; `dual_core_top` toggles per-core read acks; `decode_stage` gives `hold` priority over `flush` (a branch/jump frozen in EX by a hold must not have its bundle cleared by its own redirect before EX/MEM captures it — a real bug that showed up as `tb_soc_gpu` printing "GPU(4444…", fixed by reordering the ID/EX update priority).
 
-- **Results (first honest full-APU measurement, real data-dependent kernel):** synthesis **6,717 LUTs (10.6%) incl. 1,584 LUT-as-memory, 2,379 FF (1.9%), 64 RAMB36E1 + 1 RAMB18 (47.8%), 15 DSP; synth setup WNS +3.10ns**. Implementation (place+route — first time actually run): **7,516 LUTs (11.9%), 2,410 FF, 64.5 BRAM tiles, 15 DSP; setup WNS +0.823ns at 50 MHz → Fmax ≈ 52.6 MHz**. Critical path: `u_cpu/u_mem/mem_wb_rdata[15]` → `u_cpu/u_exec/ex_mem_alu_result[26]` (WB→EX forwarding into the ALU operand mux, 14 logic levels incl. 3 DSP48E1). Hold +0.090ns, PW +8.75ns, both clean.
+- **Results (re-measured 2026-08-20, real data-dependent kernel):** synthesis **7,669 LUTs (12.1%) incl. 1,584 LUT-as-memory, 2,410 FF, 64 RAMB36E1 + 1 RAMB18 (47.8%), 15 DSP; synth setup WNS +3.348ns**. Implementation (place+route): **7,516 LUTs (11.9%), 1,580 LUT-as-memory, 2,410 FF, 64.5 BRAM tiles, 15 DSP; setup WNS +0.685ns at 50 MHz → Fmax ≈ 51.8 MHz**. Critical path: `u_cpu/u_mem/mem_wb_rdata[7]` → `u_cpu/u_exec/ex_mem_alu_result[27]` (WB→EX forwarding into the ALU operand mux, 14 logic levels incl. 3 DSP48E1). Hold +0.084ns, PW +8.75ns, both clean.
   - **The OLD numbers (6,270 LUTs / 10,720 FF / 18 DSP / WNS +1.305ns) were an artifact:** the then-current `gpu_demo.S` was an all-constant kernel, so Vivado constant-folded the whole GPU (regfile + scratchpad + datapath → ~0 LUTs) and "impl" had never actually run (that WNS was the synth timing report). The first real-data measurement blew up to 58,015 LUTs because Phase F's host-write port + reset loops broke GPU RAM inference — fixed by single-write-port scratchpad + resetless regfile (see AGENTS.md Phase G).
   - `data_bram` carries `(* ram_decomp = "power" *)`: the 256KB array cascades 64 RAMB36E1s deep and otherwise trips place_design DRC **REQP-1962** (ADDRARDADDR[15] tie-off mismatch in the cascade chain).
   - Remaining: bitstream deliberately off (no board target). Next lever for Fmax is pipelining/retiming the register-file→ALU forwarding mux if a higher clock is ever needed.

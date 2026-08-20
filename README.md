@@ -12,7 +12,7 @@ A **RISC-V Accelerated Processing Unit** — an RV32IM scalar CPU fused with a S
 - **Coherent 2-core research rig** — snooping MSI D-cache (write-through, write-invalidate), LR/SC spinlock, passed MP + SB litmus tests
 - **SIMT GPU** — 4 warps × 4 lanes, 16-bit SIMT ISA, warp scheduler with latency hiding, scratchpad, vector/matmul/conv kernels
 - **SoC** — UART, timer/CLINT, GPIO, pbus MMIO decode, bare-metal firmware + scheduler
-- **Fits on the board** — synthesis/implementation on XC7A100T: **7,516 LUTs (11.9%) incl. 1,580 LUT-as-memory, 2,410 FF, 64.5 BRAM tiles, 15 DSP; 50 MHz timing met (WNS +0.823ns) → Fmax ≈ 52.6 MHz**
+- **Fits on the board** — synthesis/implementation on XC7A100T: **7,516 LUTs (11.9%) incl. 1,580 LUT-as-memory, 2,410 FF, 64.5 BRAM tiles, 15 DSP; 50 MHz timing met (WNS +0.685ns) → Fmax ≈ 51.8 MHz**
 - **Compliance** — riscv-arch-test rv32im: **53/54** (1 skip, Zifencei `fence.i`: split I/D BRAMs)
 
 ## Architecture
@@ -34,6 +34,7 @@ A **RISC-V Accelerated Processing Unit** — an RV32IM scalar CPU fused with a S
 | MSI coherence | tb_dual_spin (counter → 1000, no lost updates), litmus MP + SB 200/200 each |
 | GPU kernels | tb_gpu_top_kernels 66/66 (vector_add, relu, matmul, conv2d) |
 | SoC end-to-end | tb_soc_gpu: CPU writes A/B into GPU scratchpad, launches vector-add kernel over pbus, reads C back — `C = A + B` per lane |
+| FreeRTOS | tb_soc_rtos: real preemptive RTOS (V10.5.1, M-mode port) — two tasks preempt correctly, tick timing cycle-accurate |
 
 ## Project Structure
 
@@ -88,6 +89,7 @@ make impl
 | E | SIMT GPU: scheduler, lanes, kernels, SoC integration | ✅ |
 | F | Coherent-APU integration (shared scratchpad window, acquire/release) | ✅ |
 | G | Synthesis + timing closure on Artix-7 (Vivado) | ✅ |
+| H | FreeRTOS bring-up: kernel boots, scheduler preempts two tasks | ✅ |
 
 ## License
 
