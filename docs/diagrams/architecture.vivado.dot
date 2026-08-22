@@ -1,0 +1,83 @@
+digraph soc_top_synth {
+  rankdir=LR; bgcolor="#1a1a2e"; fontname="Helvetica"; fontsize=10;
+  node [shape=box, style="filled,rounded", penwidth=1.5, fontname="Helvetica", fontsize=9];
+  edge [color="#8888cc", penwidth=1.2, arrowsize=0.7, fontname="Helvetica", fontsize=7];
+
+  label=<<b><font color="#e0e0e0" point-size="13">Omni-RISC APU — Post-Synthesis Netlist</font></b>
+  <font color="#888" point-size="8">xc7a100tcsg324-1 | Vivado 2026.1 | 7,669 LUTs | 2,410 FF | 15 DSP | 64.5 BRAM | WNS +3.35ns</font>>;
+  labelloc=t; fontcolor="#e0e0e0";
+
+  // ====== soc_top cluster ======
+  subgraph cluster_soc {
+    label="soc_top (APU top)"; style="rounded,dashed,thick"; color="#4a4a6a"; fontcolor="#a0a0c0"; fontsize=10;
+    pencolor="#4a4a6a"; bgcolor="#222244"; margin=20;
+
+    // --- CPU ---
+    subgraph cluster_cpu {
+      label="u_cpu — cpu_top (RV32IM Core)"; style="filled,rounded"; fillcolor="#1a1a3a"; color="#5858a0";
+      fontcolor="#a0a0ff"; fontsize=9; penwidth=1.2; margin=15;
+
+      u_decode [label="u_decode\ndecode_stage", fillcolor="#2a3a6a", fontcolor="#fff"];
+      regfile [label="regfile1\nregfile", fillcolor="#1a3a5a", fontcolor="#fff"];
+      u_exec [label="u_exec\nexec_stage", fillcolor="#2a3a6a", fontcolor="#fff"];
+      csr_file [label="csr_file1\ncsr_file", fillcolor="#1a3a5a", fontcolor="#fff"];
+      mul1 [label="mul1\nmultiplier", fillcolor="#1a3a5a", fontcolor="#fff"];
+      div1 [label="div1\ndivider", fillcolor="#1a3a5a", fontcolor="#fff"];
+      u_fetch [label="u_fetch\nfetch_stage", fillcolor="#2a3a6a", fontcolor="#fff"];
+      pc_gen [label="pc_gen1\npc_gen", fillcolor="#1a3a5a", fontcolor="#fff"];
+      u_mem [label="u_mem\nmem_stage", fillcolor="#2a3a6a", fontcolor="#fff"];
+      dbram [label="u_dbram\ndata_bram (256KB)", fillcolor="#3a5a2a", fontcolor="#fff"];
+
+      u_decode -> regfile [style=dashed, color="#6666aa", label="regfile"];
+      u_decode -> u_exec [color="#8888cc", label="id_ex_bundle"];
+      u_exec -> csr_file [style=dashed, color="#6666aa", label="csr"];
+      u_exec -> mul1 [style=dashed, color="#6666aa", label="M-extension"];
+      u_exec -> div1 [style=dashed, color="#6666aa", label="M-extension"];
+      u_fetch -> pc_gen [style=dashed, color="#6666aa", label="pc"];
+      u_exec -> u_mem [color="#8888cc", label="ex_mem_bundle"];
+      u_mem -> dbram [color="#8888cc", label="data window"];
+    }
+
+    // --- GPU ---
+    subgraph cluster_gpu {
+      label="u_gpu — gpu_top (SIMT GPU)"; style="filled,rounded"; fillcolor="#2a1a3a"; color="#a058a0";
+      fontcolor="#ffa0ff"; fontsize=9; penwidth=1.2; margin=15;
+
+      u_cmd [label="u_cmd\ngpu_cmd_proc", fillcolor="#4a2a5a", fontcolor="#fff"];
+      u_fetch2 [label="u_fetch\ngpu_fetch", fillcolor="#4a2a5a", fontcolor="#fff"];
+      u_sched [label="u_sched\nwarp_scheduler", fillcolor="#4a2a5a", fontcolor="#fff"];
+      u_lane [label="g_warp[0].u_lane\nexec_lane (×4)", fillcolor="#5a3a6a", fontcolor="#fff"];
+      gpu_regfile [label="u_regfile\ngpu_regfile", fillcolor="#3a2a5a", fontcolor="#fff"];
+      gpu_scratchpad [label="u_sp\ngpu_scratchpad", fillcolor="#3a2a5a", fontcolor="#fff"];
+
+      u_cmd -> u_lane [style=dashed, color="#aa66aa", label="shared-mem\nwindow"];
+      u_sched -> u_fetch2 [color="#aa66aa", label="warp_id"];
+      u_fetch2 -> u_lane [color="#aa66aa", label="instr"];
+      u_lane -> gpu_regfile [style=dashed, color="#8866aa", label="regfile"];
+      u_lane -> gpu_scratchpad [style=dashed, color="#8866aa", label="scratchpad"];
+    }
+
+    // --- Peripherals ---
+    u_uart [label="u_uart\nUART (115200 baud)", fillcolor="#3a5a3a", fontcolor="#fff"];
+    u_timer [label="u_timer\nTimer / CLINT", fillcolor="#3a5a3a", fontcolor="#fff"];
+    u_gpio [label="u_gpio\nGPIO", fillcolor="#3a5a3a", fontcolor="#fff"];
+
+    // --- CPU <-> Peripherals ---
+    u_cpu -> u_uart [color="#88aa88", label="pbus", style=dashed];
+    u_cpu -> u_timer [color="#88aa88", label="pbus", style=dashed];
+    u_cpu -> u_gpio [color="#88aa88", label="pbus", style=dashed];
+    u_cpu -> u_cmd [color="#88aa88", label="pbus", style=dashed];
+    u_timer -> u_cpu [color="#88aa88", label="mtip", style=dashed];
+  }
+
+  // ====== Top-level IO pads ======
+  clk_pad [label="clk", fillcolor="#5a3a3a", fontcolor="#fff", shape=cds];
+  rst_pad [label="reset", fillcolor="#5a3a3a", fontcolor="#fff", shape=cds];
+  uart_pad [label="uart_tx", fillcolor="#5a3a3a", fontcolor="#fff", shape=cds];
+  gpio_pads [label="gpio_out[7:0]", fillcolor="#5a3a3a", fontcolor="#fff", shape=cds];
+
+  clk_pad -> u_cpu [color="#cc6666"];
+  rst_pad -> u_cpu [color="#cc6666"];
+  u_cpu -> uart_pad [color="#cc6666"];
+  u_cpu -> gpio_pads [color="#cc6666"];
+}
