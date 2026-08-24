@@ -24,6 +24,8 @@ module trap_unit (
     input         mstatus_mie,      // global interrupt enable (mstatus.MIE)
     input         mie_mtie,         // machine timer interrupt enable (mie.MTIE)
     input         mip_mtip,         // machine timer interrupt pending (mip.MTIP)
+    input         mie_msie,         // machine software interrupt enable (mie.MSIE)
+    input         mip_msip,         // machine software interrupt pending (mip.MSIP)
 
     // redirect-drain info (from exec_stage): a branch/jump redirected recently
     // and wrong-path instructions are draining. An interrupt taken now must use
@@ -46,19 +48,22 @@ module trap_unit (
     // Take the interrupt only when id_ex_pc is a real instruction (not a
     // flush bubble) or the pipeline is draining a redirect (wrong-path is in
     // EX, so mepc must come from the redirect target instead).
-    wire timer_int = mstatus_mie & mie_mtie & mip_mtip &
-                     ((id_ex_pc != 32'b0) | redirect_pending);
+    // Spec priority MEI > MSI > MTI; we implement MSI over MTI.
+    wire int_window = ((id_ex_pc != 32'b0) | redirect_pending);
+    wire soft_int  = mstatus_mie & mie_msie & mip_msip & int_window;
+    wire timer_int = mstatus_mie & mie_mtie & mip_mtip & int_window & ~soft_int;
 
     wire [4:0] cause_code = id_ex_is_ecall ? 5'd11
                           : id_ex_is_ebreak ? 5'd3
                           : 5'd2;                      // illegal (incl. CSR fault)
 
-    assign trap_taken = is_exception | timer_int;
+    assign trap_taken = is_exception | timer_int | soft_int;
     assign mret       = id_ex_is_mret;
     assign trap_valid = trap_taken | mret;
     assign trap_target= id_ex_is_mret ? mepc : mtvec;
-    assign trap_pc    = (timer_int & redirect_pending) ? redirect_target : id_ex_pc;
-    assign trap_cause = timer_int ? 32'h8000_0007 : {27'b0, cause_code};
+    assign trap_pc    = ((timer_int | soft_int) & redirect_pending) ? redirect_target : id_ex_pc;
+    assign trap_cause = soft_int  ? 32'h8000_0003 :
+                        timer_int ? 32'h8000_0007 : {27'b0, cause_code};
     assign trap_tval  = 32'b0;
 
 endmodule

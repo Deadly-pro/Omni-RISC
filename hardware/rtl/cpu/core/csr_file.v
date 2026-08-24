@@ -17,6 +17,7 @@ module csr_file (
     input      [31:0] trap_tval,
     input             mret,
     input             mtip,        // machine timer interrupt pending (from SoC timer)
+    input             msip,        // machine software interrupt pending (from CLINT msip)
 
     output wire [31:0] mtvec_o,
     output reg  [31:0] mepc_o,
@@ -38,8 +39,9 @@ module csr_file (
     reg mie_meie, mie_mtie, mie_msie;
     wire [31:0] mie_val = {20'b0, mie_meie, 3'b0, mie_mtie, 3'b0, mie_msie, 3'b0};
 
-    reg mip_meip, mip_msip;
+    reg mip_meip, mip_msip_csr;
     wire mip_mtip = mtip;   // read-only, set by the SoC timer (CLINT)
+    wire mip_msip = mip_msip_csr | msip;   // CSR write OR CLINT msip register
     wire [31:0] mip_val = {20'b0, mip_meip, 3'b0, mip_mtip, 3'b0, mip_msip, 3'b0};
 
     reg [31:0] mscratch;
@@ -101,7 +103,7 @@ module csr_file (
             mcause_int   <= 1'b0;
             mcause_code  <= 4'b0;
             mie_meie     <= 1'b0; mie_mtie <= 1'b0; mie_msie <= 1'b0;
-            mip_meip     <= 1'b0; mip_msip <= 1'b0;
+            mip_meip     <= 1'b0; mip_msip_csr <= 1'b0;
 
             mscratch <= 32'b0;
             mepc_o   <= 32'b0;
@@ -143,7 +145,7 @@ module csr_file (
                     end
                     12'h343: mtval <= next_val;
                     12'h344: begin
-                        mip_msip <= next_val[3];
+                        mip_msip_csr <= next_val[3];
                         mip_meip <= next_val[11];
                     end
                     12'hB00: mcycle   <= next_val;

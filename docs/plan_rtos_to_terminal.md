@@ -25,18 +25,24 @@ The remaining deliverables already named in AGENTS.md Phase H.
 - **Gate: PASSED** — `[Q] QUEUE DONE 1000`, all 4 progress reports in order,
   2,459,685 cycles total, zero ORDER FAIL/ASSERT lines.
 
-### R1b. Semaphore given from an ISR (real RTL work)
-Current state: `trap_unit.v` only takes machine *timer* interrupts (MTIP).
-An ISR-semaphore demo needs a second interrupt source.
-- Recommended: machine **software** interrupt via CLINT msip (`0x0200_0000`,
-  mcause `0x80000003`). Requires:
-  - `csr_file.v`: capture `mie.MSIE` on writes to 0x304.
-  - `trap_unit.v`: accept MSIP as a takeable interrupt (same pattern as MTIP).
-  - `timer.v`: msip region decode → pending wire up to soc_top.
-- Firmware: low-prio task spins; timer ISR sets msip once; msip handler does
-  `xSemaphoreGiveFromISR`; high-prio task wakes via `xSemaphoreTake`.
-- **Gate:** new TB passes; full regression still green (this touches the
-  trap path — rerun tb_cpu_top 83/83 + compliance 53/54).
+### R1b. Semaphore given from an ISR (real RTL work)  (DONE — first pass after one fix)
+- Implemented the full machine-software-interrupt path:
+  - `timer.v`: CLINT msip register @ +0x0000 (bit0, read/write) → `msip` output.
+  - `csr_file.v`: `msip` input ORs into mip.MSIP (CSR-write path kept).
+  - `trap_unit.v`: takeable MSI (`mstatus.MIE & mie.MSIE & mip.MSIP`),
+    cause 0x80000003, MSI priority over MTI per spec order.
+  - Wired through `exec_stage` → `cpu_top` → `soc_top`; `dual_core_top` and
+    `cpu2_top` tie msip off.
+- Firmware `firmware/apps/rtos_sem.c`: trigger task raises CLINT msip 3x;
+  `freertos_risc_v_application_interrupt_handler` clears the source,
+  `xSemaphoreGiveFromISR` + `portYIELD_FROM_ISR`; waiter task counts to 3.
+- **Gotcha found:** the FreeRTOS port only enables MTIE/MEIE — firmware must
+  `csrs mie, 0x8` or msip pends forever with no trap.
+- TB: `hardware/sim/soc/tb_soc_rtos_sem.cpp` (+ `TB_DEBUG=1` env prints all
+  decoded UART lines for bring-up).
+- **Gate: PASSED** — `[SEM] GOT 1..3` at exactly 200ms spacing, DONE at
+  30.7M cycles; regression green (tb_cpu_top 83/83, compliance 53/54,
+  tb_soc_rtos, tb_soc_rtos_q, tb_dual_spin).
 
 ### R1c. Scheduler metric numbers (the quotable ones)
 Measure with `mtime` reads (50k cycles/tick resolution) and dump over UART:

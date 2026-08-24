@@ -36,6 +36,7 @@ module dual_core_top (
 
     // Shared mtip (timer interrupt pending)
     wire        mtip;
+    wire        msip_unused;
 
     // Snoop connections (from the OTHER core's dcache memory transactions)
     wire [31:0] core0_snoop_addr, core1_snoop_addr;
@@ -134,6 +135,7 @@ module dual_core_top (
         .pbus_read(core0_read),
         .pbus_rdata(core0_rdata),
         .mtip(mtip),
+        .msip(msip_unused),
         .snoop_addr(core0_snoop_addr),
         .snoop_read(core0_snoop_read),
         .snoop_write(core0_snoop_write),
@@ -161,6 +163,7 @@ module dual_core_top (
         .pbus_read(core1_read),
         .pbus_rdata(core1_rdata),
         .mtip(mtip),
+        .msip(msip_unused),
         .snoop_addr(core1_snoop_addr),
         .snoop_read(core1_snoop_read),
         .snoop_write(core1_snoop_write),
@@ -206,7 +209,8 @@ module dual_core_top (
         .pbus_wen(pbus_wen),
         .pbus_read(pbus_read),
         .pbus_rdata(timer_rdata),
-        .mtip(mtip)
+        .mtip(mtip),
+        .msip(msip_unused)
     );
 
     gpio u_gpio (

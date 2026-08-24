@@ -23,6 +23,7 @@ module soc_top (
     wire [3:0]  pbus_wen;
     wire        pbus_read;
     wire        mtip;
+    wire        msip;
 
     wire [31:0] uart_rdata, timer_rdata, gpio_rdata, gpu_rdata;
 
@@ -43,6 +44,7 @@ module soc_top (
         .pbus_read(pbus_read),
         .pbus_rdata(pbus_rdata),
         .mtip(mtip),
+        .msip(msip),
         .snoop_addr(32'b0),
         .snoop_read(1'b0),
         .snoop_write(1'b0),
@@ -75,7 +77,8 @@ module soc_top (
         .pbus_wen(pbus_wen),
         .pbus_read(pbus_read),
         .pbus_rdata(timer_rdata),
-        .mtip(mtip)
+        .mtip(mtip),
+        .msip(msip)
     );
 
     gpio u_gpio(

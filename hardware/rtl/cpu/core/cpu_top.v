@@ -15,6 +15,8 @@ module cpu_top #(
       input  [31:0] pbus_rdata,
       // ---- machine timer interrupt pending (from SoC CLINT) ----
       input         mtip,
+      // ---- machine software interrupt pending (from SoC CLINT msip) ----
+      input         msip,
       // ---- snoop interface (for dual-core MSI coherence) ----
       input  [31:0] snoop_addr,
       input         snoop_read,
@@ -147,6 +149,7 @@ exec_stage u_exec(
     .id_ex_is_mret(id_ex_is_mret),
     .id_ex_illegal(id_ex_illegal),
     .mtip(mtip),
+    .msip(msip),
     .redirect_valid(redirect_valid),
     .redirect_target(redirect_target),
     .id_ex_rs1_addr(id_ex_rs1_addr),

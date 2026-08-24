@@ -27,6 +27,7 @@ module exec_stage (
      input         id_ex_is_mret,      // to trap_unit
      input         id_ex_illegal,      // to trap_unit
      input         mtip,               // machine timer interrupt pending (from SoC)
+     input         msip,               // machine software interrupt pending (from CLINT)
      // ---- forwarding inputs ----
      input  [4:0]  id_ex_rs1_addr,     // NEW — match key
      input  [4:0]  id_ex_rs2_addr,     // NEW — match key
@@ -112,6 +113,7 @@ csr_file csr_file1(
     .trap_tval(trap_tval),
     .mret(trap_mret),
     .mtip(mtip),
+    .msip(msip),
     .mtvec_o(csr_mtvec_o),
     .mepc_o(csr_mepc_o),
     .mstatus_o(csr_mstatus_o),
@@ -131,6 +133,8 @@ trap_unit trap1(
     .mstatus_mie(csr_mstatus_o[3]),
     .mie_mtie(csr_mie_o[7]),
     .mip_mtip(csr_mip_o[7]),
+    .mie_msie(csr_mie_o[3]),
+    .mip_msip(csr_mip_o[3]),
     .redirect_pending(redirect_pending),
     .redirect_target(redirect_target_q),
     .trap_valid(trap_valid),
