@@ -21,7 +21,7 @@ BOOT_OBJ    := $(BOOT_OBJ:.S=.o)
 DRIVER_OBJ  := $(DRIVER_SRCS:.c=.o)
 DEPS        := $(BOOT_OBJ:.o=.d) $(DRIVER_OBJ:.o=.d)
 
-# --- FreeRTOS (APP=rtos only) ----------------------------------------------
+# --- FreeRTOS (APP=rtos / rtos_q) ------------------------------------------
 FREERTOS_ROOT  := third_party/FreeRTOS
 FREERTOS_PORT  := $(FREERTOS_ROOT)/portable/GCC/RISC-V
 FREERTOS_EXT   := $(FREERTOS_PORT)/chip_specific_extensions/RISCV_MTIME_CLINT_no_extensions
@@ -39,7 +39,7 @@ FREERTOS_ASM_OBJ := $(FREERTOS_PORT)/portASM.o
 FREERTOS_INC   := -I$(FREERTOS_ROOT)/include -I$(FREERTOS_PORT) -Irtos -Irtos/include
 
 $(FREERTOS_C_OBJ): CFLAGS += $(FREERTOS_INC) -fno-builtin
-apps/rtos.o: CFLAGS += $(FREERTOS_INC)
+apps/rtos.o apps/rtos_q.o: CFLAGS += $(FREERTOS_INC)
 
 $(FREERTOS_ASM_OBJ): FREERTOS_ASM_FLAGS := -march=rv32im_zicsr_zifencei -mabi=ilp32 -c -I$(FREERTOS_PORT) -I$(FREERTOS_EXT)
 
@@ -52,7 +52,7 @@ APP ?= hello
 all: $(APP).hex
 
 # Link
-ifeq ($(APP),rtos)
+ifeq ($(filter rtos rtos_q,$(APP)),$(APP))
 $(APP).elf: $(BOOT_OBJ) $(DRIVER_OBJ) apps/$(APP).o $(FREERTOS_C_OBJ) $(FREERTOS_ASM_OBJ)
 	$(CC) $(CFLAGS) -T boot/linker_rtos.ld -nostdlib -o $@ $^
 else

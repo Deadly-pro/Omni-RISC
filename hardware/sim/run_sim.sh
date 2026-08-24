@@ -269,6 +269,12 @@ if [[ "$TB_BASENAME" == tb_soc_rtos ]]; then
     cp "$PROJECT_ROOT/firmware/rtos.hex" "$OBJ_DIR/program.hex"
 fi
 
+# FreeRTOS queue test: build the rtos_q app and stage it as program.hex.
+if [[ "$TB_BASENAME" == tb_soc_rtos_q ]]; then
+    make -C "$PROJECT_ROOT/firmware" APP=rtos_q rtos_q.hex >/dev/null 2>&1
+    cp "$PROJECT_ROOT/firmware/rtos_q.hex" "$OBJ_DIR/program.hex"
+fi
+
 # APU GPU-dispatch test: stage the CPU firmware (benchmark_gpu) as program.hex
 # and the flashed GPU kernel as gpu_demo.hex (soc_top's gpu_top IMEM_FILE).
 if [[ "$TB_BASENAME" == tb_soc_gpu ]]; then
