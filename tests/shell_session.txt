@@ -3,6 +3,14 @@ uptime
 ps
 ticks
 gpu
-foo
+poke 30000 deadbeef
+peek 30000
+poke 40001000 aa
+peek 40001000
+mdump 30000 4
+gpio ff
+mtime
+heap
+badcmd xyz
 helqp
 quit

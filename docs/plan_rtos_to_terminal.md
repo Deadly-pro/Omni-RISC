@@ -131,6 +131,31 @@ New app `firmware/apps/shell/`, FreeRTOS-based:
   (vector-add sum=110 PASS over MMIO); `quit` prints `[SHELL] QUIT`, which
   the TB decodes to end the sim. `strcmp` added to `rtos/omni_libc.c`.
 
+## R6 — Live console, debug-monitor commands  (**DONE**, Aug 2026)
+
+The shell grew a U-Boot-style debug-monitor set, all backed by real
+hardware access, and a raw-mode terminal wrapper:
+
+- **Commands** (hex args): `peek`/`poke` (word read/write), `mdump`
+  (word dump, 4-per-row), `gpio` (write+readback), `mtime` (64-bit CLINT
+  counter), `heap` (`xPortGetFreeHeapSize`), `reboot` (jump to the reset
+  vector - startup.S resets sp and zeroes .bss, so it is a real re-boot).
+- **`scripts/console.sh`**: stty raw-mode wrapper so the sim session feels
+  like a serial terminal (character-at-a-time, shell does the echo and
+  line editing).
+- **`reboot` gotcha**: `csrci mie, 0` is a NO-OP (clears zero bits) -
+  FreeRTOS's MTIE|MSIE survived the jump and the tick handler re-fired
+  with a bss-zeroed `period`, storming into the boot trampoline. Fixed
+  with `csrw mie, x0` + parking mtimecmp at 0xFFFFFFFF. Found by VCD
+  forensics (PC cycling the handler/restore tails forever).
+- **Gate**: `tests/test_shell.sh` now asserts 17 checks including poke/peek
+  round trips, GPIO readback, mdump contents, mtime/heap output.
+
+**On POSIX**: this is a debug monitor on a bare-metal RTOS, NOT a POSIX
+environment - FreeRTOS has no processes, filesystem, MMU or networking.
+`ls`/`ifconfig`-style commands would be fake; these commands are real
+access to the hardware.
+
 ## R5 — Package it  (**DONE**, Aug 2026)
 
 - README: short GIF/asciinema of a typed session (`ps`, `ticks`, `gpu`).

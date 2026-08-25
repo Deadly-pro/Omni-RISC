@@ -86,6 +86,7 @@ void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
 static void cmd_help(void)
 {
     uart_puts("commands: help uptime ps ticks gpu quit\r\n");
+    uart_puts("debug:    peek poke mdump gpio mtime heap reboot  (args: hex)\r\n");
 }
 
 static void cmd_uptime(void)
@@ -175,6 +176,144 @@ static struct { const char *name; void (*fn)(void); } cmds[] = {
     { "gpu",    cmd_gpu },
 };
 
+/* ---- debug-monitor commands (U-Boot md/mw genre; args are hex) -------- */
+static void put_hex32(uint32_t v)
+{
+    static const char d[] = "0123456789abcdef";
+    for (int i = 7; i >= 0; i--) uart_putc(d[(v >> (i * 4)) & 0xF]);
+}
+
+/* hex or decimal, optional 0x prefix; returns 1 on success */
+static int parse_num(const char *s, uint32_t *out)
+{
+    uint32_t v = 0;
+    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) s += 2;
+    if (*s == '\0') return 0;
+    for (; *s; s++) {
+        char c = *s;
+        uint32_t d;
+        if (c >= '0' && c <= '9')      d = c - '0';
+        else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
+        else return 0;
+        v = v * 16 + d;
+    }
+    *out = v;
+    return 1;
+}
+
+static char *next_tok(char **cursor)
+{
+    char *s = *cursor;
+    while (*s == ' ') s++;
+    if (*s == '\0') return NULL;
+    char *tok = s;
+    while (*s && *s != ' ') s++;
+    if (*s) *s++ = '\0';
+    *cursor = s;
+    return tok;
+}
+
+static void cmd_peek(char *args)
+{
+    uint32_t addr;
+    char *tok = next_tok(&args);
+    if (!tok || !parse_num(tok, &addr)) {
+        uart_puts("usage: peek <hexaddr>\r\n");
+        return;
+    }
+    uart_puts("0x"); put_hex32(addr);
+    uart_puts(": 0x");
+    put_hex32(*(volatile uint32_t *)addr);
+    uart_puts("\r\n");
+}
+
+static void cmd_poke(char *args)
+{
+    uint32_t addr, val;
+    char *tok = next_tok(&args);
+    if (!tok || !parse_num(tok, &addr)) {
+        uart_puts("usage: poke <hexaddr> <hexval>\r\n");
+        return;
+    }
+    tok = next_tok(&args);
+    if (!tok || !parse_num(tok, &val)) {
+        uart_puts("usage: poke <hexaddr> <hexval>\r\n");
+        return;
+    }
+    *(volatile uint32_t *)addr = val;
+    uart_puts("ok\r\n");
+}
+
+static void cmd_mdump(char *args)
+{
+    uint32_t addr, n;
+    char *tok = next_tok(&args);
+    if (!tok || !parse_num(tok, &addr)) {
+        uart_puts("usage: mdump <hexaddr> <count>\r\n");
+        return;
+    }
+    tok = next_tok(&args);
+    if (!tok || !parse_num(tok, &n) || n == 0 || n > 64) {
+        uart_puts("usage: mdump <hexaddr> <count 1-64>\r\n");
+        return;
+    }
+    for (uint32_t i = 0; i < n; i++) {
+        if ((i & 3) == 0) {
+            if (i) uart_puts("\r\n");
+            uart_puts("0x"); put_hex32(addr + i * 4); uart_puts(":");
+        }
+        uart_putc(' ');
+        put_hex32(*(volatile uint32_t *)(addr + i * 4));
+    }
+    uart_puts("\r\n");
+}
+
+static void cmd_gpio(char *args)
+{
+    uint32_t val;
+    char *tok = next_tok(&args);
+    if (!tok || !parse_num(tok, &val) || val > 0xFF) {
+        uart_puts("usage: gpio <hex 00-ff>\r\n");
+        return;
+    }
+    *(volatile uint32_t *)0x40001000u = val;
+    uart_puts("gpio = 0x");
+    put_hex32(*(volatile uint32_t *)0x40001000u);
+    uart_puts("\r\n");
+}
+
+static void cmd_mtime(void)
+{
+    uint32_t hi, lo;
+    do {
+        hi = *(volatile uint32_t *)0x0200BFFCu;
+        lo = *(volatile uint32_t *)0x0200BFF8u;
+    } while (hi != *(volatile uint32_t *)0x0200BFFCu);
+    uart_puts("mtime = 0x"); put_hex32(hi); put_hex32(lo); uart_puts("\r\n");
+}
+
+static void cmd_heap(void)
+{
+    uart_puts("heap free = ");
+    put_dec((uint32_t)xPortGetFreeHeapSize());
+    uart_puts(" bytes\r\n");
+}
+
+static void cmd_reboot(void)
+{
+    uart_puts("rebooting...\r\n");
+    /* startup.S resets sp and zeroes .bss, so a jump to the reset vector
+       is a full re-init (the FreeRTOS image is still in IMEM) */
+    for (volatile int i = 0; i < 30000; i++) { }  /* let TX drain + bit times */
+    /* csrci mie,0 is a NO-OP (clears zero bits): write zero instead, and park
+       mtimecmp at max so a stray MTI can never fire into the un-init boot */
+    __asm volatile("csrw mie, x0");
+    *(volatile uint32_t *)0x02004004u = 0xFFFFFFFFu;
+    *(volatile uint32_t *)0x02004000u = 0xFFFFFFFFu;
+    ((void (*)(void))0x00000000u)();
+}
+
 /* ---- console task ----------------------------------------------------- */
 static void vConsoleTask(void *pv)
 {
@@ -203,15 +342,27 @@ static void vConsoleTask(void *pv)
                     uart_puts("[SHELL] QUIT\r\n");
                     for (;;) vTaskDelay(pdMS_TO_TICKS(1000));
                 }
-                unsigned k;
-                for (k = 0; k < sizeof(cmds) / sizeof(cmds[0]); k++)
-                    if (strcmp(line, cmds[k].name) == 0) break;
-                if (k < sizeof(cmds) / sizeof(cmds[0]))
-                    cmds[k].fn();
+                /* debug-monitor commands take arguments: split argv-style */
+                char *cursor = line;
+                char *cmd = next_tok(&cursor);
+                if      (strcmp(cmd, "peek")  == 0) cmd_peek(cursor);
+                else if (strcmp(cmd, "poke")  == 0) cmd_poke(cursor);
+                else if (strcmp(cmd, "mdump") == 0) cmd_mdump(cursor);
+                else if (strcmp(cmd, "gpio")  == 0) cmd_gpio(cursor);
+                else if (strcmp(cmd, "mtime") == 0) cmd_mtime();
+                else if (strcmp(cmd, "heap")  == 0) cmd_heap();
+                else if (strcmp(cmd, "reboot") == 0) cmd_reboot();
                 else {
-                    uart_puts("unknown: ");
-                    uart_puts(line);
-                    uart_puts("\r\n");
+                    unsigned k;
+                    for (k = 0; k < sizeof(cmds) / sizeof(cmds[0]); k++)
+                        if (strcmp(cmd, cmds[k].name) == 0) break;
+                    if (k < sizeof(cmds) / sizeof(cmds[0]))
+                        cmds[k].fn();
+                    else {
+                        uart_puts("unknown: ");
+                        uart_puts(cmd);
+                        uart_puts("\r\n");
+                    }
                 }
             }
             uart_puts("omni> ");

@@ -1,0 +1,10 @@
+help
+poke 10000 deadbeef
+peek 10000
+poke 40001000 aa
+peek 40001000
+mdump 10000 4
+gpio 255
+mtime
+heap
+quit

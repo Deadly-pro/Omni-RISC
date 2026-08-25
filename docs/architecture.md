@@ -113,7 +113,8 @@ time (`gpu_demo.hex`); there is no runtime code download yet.
   `firmware/rtos/FreeRTOSConfig.h`, libc stubs in `firmware/rtos/omni_libc.c`.
 - **Apps** (`firmware/apps/`): hello, timer, benchmarks (CPU/GPU), RTOS
   bring-up suite (rtos, rtos_q, rtos_sem, rtos_metrics), uart_echo, and
-  `shell.c` — the interactive console (help/uptime/ps/ticks/gpu/quit).
+  `shell.c` — the interactive console (help/uptime/ps/ticks/gpu/quit) plus a
+  U-Boot-style debug-monitor set (peek/poke/mdump/gpio/mtime/heap/reboot).
 
 ## Verification (all green, Aug 2026)
 
