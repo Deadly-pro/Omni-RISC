@@ -54,6 +54,28 @@ static void put_dec(uint32_t v)
     for (int j = i - 1; j >= 0; j--) uart_putc(buf[j]);
 }
 
+void freertos_risc_v_application_exception_handler(void)
+{
+    uint32_t mcause, mepc, mtval;
+    __asm__ volatile ("csrr %0, mcause" : "=r"(mcause));
+    __asm__ volatile ("csrr %0, mepc"   : "=r"(mepc));
+    __asm__ volatile ("csrr %0, mtval"  : "=r"(mtval));
+    uart_puts("\r\n[EXC] mcause=");
+    put_dec(mcause);
+    uart_puts(" mepc=0x");
+    for (int i = 28; i >= 0; i -= 4) {
+        char d = (mepc >> i) & 0xF;
+        uart_putc(d < 10 ? '0' + d : 'a' + d - 10);
+    }
+    uart_puts(" mtval=0x");
+    for (int i = 28; i >= 0; i -= 4) {
+        char d = (mtval >> i) & 0xF;
+        uart_putc(d < 10 ? '0' + d : 'a' + d - 10);
+    }
+    uart_puts("\r\n");
+    for (;;) { }
+}
+
 static QueueHandle_t xQ;
 
 static void vProducer(void *pvParameters)

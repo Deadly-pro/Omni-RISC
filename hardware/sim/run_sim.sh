@@ -222,11 +222,18 @@ echo -e "${BOLD}--- Compiling with Verilator ---${RESET}"
 OBJ_DIR="$SIM_DIR/obj_dir_${TB_BASENAME}"
 mkdir -p "$OBJ_DIR"
 
+# Only tb_soc_rtos_q probes internal registers (BADREDIR/JUNK diagnostics);
+# --public-flat-rw otherwise bloats every model (256KB BRAMs exposed → the
+# compliance harness segfaults from the huge generated C++).
+PUB_FLAT=""
+if [[ "$TB_BASENAME" == tb_soc_rtos_q ]]; then PUB_FLAT="--public-flat-rw"; fi
+
 # shellcheck disable=SC2086
 if ! verilator $VERILATOR_FLAGS \
         $RTL_INCLUDES \
         --Mdir "$OBJ_DIR" \
         --top-module "$DUT_NAME" \
+        $PUB_FLAT \
         -CFLAGS "-std=c++17 -DVCD_FILE=\\\"$VCD_FILE\\\"" \
         "$DUT_VERILOG" \
         "$TB_CPP" 2>&1; then
@@ -279,6 +286,12 @@ fi
 if [[ "$TB_BASENAME" == tb_soc_rtos_sem ]]; then
     make -C "$PROJECT_ROOT/firmware" APP=rtos_sem rtos_sem.hex >/dev/null 2>&1
     cp "$PROJECT_ROOT/firmware/rtos_sem.hex" "$OBJ_DIR/program.hex"
+fi
+
+# FreeRTOS scheduler-metrics test (ISR latency / ctx-switch / tick jitter).
+if [[ "$TB_BASENAME" == tb_soc_rtos_metrics ]]; then
+    make -C "$PROJECT_ROOT/firmware" APP=rtos_metrics rtos_metrics.hex >/dev/null 2>&1
+    cp "$PROJECT_ROOT/firmware/rtos_metrics.hex" "$OBJ_DIR/program.hex"
 fi
 
 # APU GPU-dispatch test: stage the CPU firmware (benchmark_gpu) as program.hex

@@ -44,12 +44,12 @@ The remaining deliverables already named in AGENTS.md Phase H.
   30.7M cycles; regression green (tb_cpu_top 83/83, compliance 53/54,
   tb_soc_rtos, tb_soc_rtos_q, tb_dual_spin).
 
-### R1c. Scheduler metric numbers (the quotable ones)
+### R1c. Scheduler metric numbers (the quotable ones)  **(DONE)**
 Measure with `mtime` reads (50k cycles/tick resolution) and dump over UART:
-- Context-switch cost: cycles around a forced `taskYIELD()` between two
-  pinned tasks, median of 100 switches.
-- Tick jitter: actual cycles between consecutive ticks vs 50,000, over ≥1000 ticks.
-- ISR latency: known-cycle interrupt raise → first instruction of handler.
+- **ISR entry latency: 92 cycles avg (1.84 µs)** — 20 msip-raise samples.
+- **2-switch taskYIELD round trip: 492 cycles avg (9.84 µs)** — 200 trips.
+- **Tick jitter: 49,806–50,192** (ideal 50,000), max deviation 194 cycles over 1200+ ticks.
+- Firmware: `firmware/apps/rtos_metrics.c`, TB: `tb_soc_rtos_metrics`.
 - Write results into `docs/rtos_bringup.md` + AGENTS.md Phase H ("DONE" numbers).
 - **Why:** these three numbers are what you quote in interviews; "I measured
   1.8 µs context switch on my own core" beats "it runs FreeRTOS".

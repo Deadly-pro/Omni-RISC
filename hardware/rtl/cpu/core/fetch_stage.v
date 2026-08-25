@@ -21,7 +21,8 @@ module fetch_stage #(
     output reg [31:0] if_id_pc,
     output reg [31:0] if_id_pc_plus4,
     output [31:0] if_id_instr,
-    output icache_miss
+    output icache_miss,
+    output reg [31:0] debug_pc
 );
 // flush_q latches a redirect/trap; flush stays high while the redirect is
 // STILL active (a branch held in EX by a cache refill keeps redirect_valid=1)
@@ -30,6 +31,7 @@ module fetch_stage #(
 reg flush_q;
 wire flush = reset || redirect_valid || trap_valid || flush_q;
 wire [31:0] pc,pc_plus4;
+always @(posedge clk) debug_pc <= pc;
 pc_gen pc_gen1(.clk(clk),
 .reset(reset),
 .stall(stall),

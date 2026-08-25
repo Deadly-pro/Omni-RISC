@@ -52,6 +52,7 @@ module dual_core_top (
     wire        core0_mem_write_req, core1_mem_write_req;
     wire [31:0] core0_mem_wdata, core1_mem_wdata;
     wire        core0_mem_write_ack, core1_mem_write_ack;
+    wire [31:0] core0_dbg_pc, core1_dbg_pc;
 
     // Shared data_bram (single-ported)
     wire [31:0] bram_addr;
@@ -146,7 +147,8 @@ module dual_core_top (
         .mem_if_read_ack(core0_mem_read_ack),
         .mem_if_write_req(core0_mem_write_req),
         .mem_if_wdata(core0_mem_wdata),
-        .mem_if_write_ack(core0_mem_write_ack)
+        .mem_if_write_ack(core0_mem_write_ack),
+        .debug_pc(core0_dbg_pc)
     );
 
     // Core 1
@@ -174,7 +176,8 @@ module dual_core_top (
         .mem_if_read_ack(core1_mem_read_ack),
         .mem_if_write_req(core1_mem_write_req),
         .mem_if_wdata(core1_mem_wdata),
-        .mem_if_write_ack(core1_mem_write_ack)
+        .mem_if_write_ack(core1_mem_write_ack),
+        .debug_pc(core1_dbg_pc)
     );
 
     // MSI snooping: each core's dcache watches the OTHER core's data-cache

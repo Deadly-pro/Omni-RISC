@@ -29,7 +29,9 @@ module cpu_top #(
       input         mem_if_read_ack,
       output        mem_if_write_req,
       output [31:0] mem_if_wdata,
-      input         mem_if_write_ack
+      input         mem_if_write_ack,
+      // ---- debug: current fetch PC (SoC sim probes) ----
+      output [31:0] debug_pc
   );
 wire stall,bubble;
 wire trap_valid;
@@ -49,7 +51,8 @@ fetch_stage #(.USE_CACHES(USE_CACHES)) u_fetch(
     .if_id_pc(if_id_pc),
     .if_id_pc_plus4(if_id_pc_plus4),
     .if_id_instr(if_id_instr),
-    .icache_miss(icache_miss)
+    .icache_miss(icache_miss),
+    .debug_pc(debug_pc)
 );
 wire flush=redirect_valid | trap_valid;
 //loopback from wb stage

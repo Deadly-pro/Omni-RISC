@@ -21,11 +21,20 @@ module trap_unit (
     input  [31:0] mepc,             // mret target   (from csr_file)
 
     // interrupt enables / pending (from csr_file)
-    input         mstatus_mie,      // global interrupt enable (mstatus.MIE)
-    input         mie_mtie,         // machine timer interrupt enable (mie.MTIE)
-    input         mip_mtip,         // machine timer interrupt pending (mip.MTIP)
-    input         mie_msie,         // machine software interrupt enable (mie.MSIE)
-    input         mip_msip,         // machine software interrupt pending (mip.MSIP)
+    input         mstatus_mie,       // global interrupt enable (mstatus.MIE)
+    input         mie_mtie,          // machine timer interrupt enable (mie.MTIE)
+    input         mip_mtip,          // machine timer interrupt pending (mip.MTIP)
+    input         mie_msie,          // machine software interrupt enable (mie.MSIE)
+    input         mip_msip,          // machine software interrupt pending (mip.MSIP)
+
+    // pipeline-stability gate (from exec_stage): an interrupt must not be
+    // taken while a load is in MEM, because the instruction in EX may be
+    // consuming its forwarded value. Flushing now would make the resume
+    // re-execute that instruction against a stale register file (FreeRTOS
+    // queue ORDER FAIL). ex_mem_mem_read is a register, so this gate cannot
+    // combinational-loop with the trap->flush path (a load-use hazard in EX
+    // is fine: mepc = the load, and the resume re-executes it from memory).
+    input         ex_mem_mem_read,
 
     // redirect-drain info (from exec_stage): a branch/jump redirected recently
     // and wrong-path instructions are draining. An interrupt taken now must use
@@ -47,9 +56,12 @@ module trap_unit (
 
     // Take the interrupt only when id_ex_pc is a real instruction (not a
     // flush bubble) or the pipeline is draining a redirect (wrong-path is in
-    // EX, so mepc must come from the redirect target instead).
+    // EX, so mepc must come from the redirect target instead). Also require a
+    // stable register file: no load in MEM (whose forwarded value a younger EX
+    // instruction may consume). Otherwise the trap flush would make the resume
+    // re-execute that instruction against a stale register value.
     // Spec priority MEI > MSI > MTI; we implement MSI over MTI.
-    wire int_window = ((id_ex_pc != 32'b0) | redirect_pending);
+    wire int_window = ((id_ex_pc != 32'b0) | redirect_pending) & ~ex_mem_mem_read;
     wire soft_int  = mstatus_mie & mie_msie & mip_msip & int_window;
     wire timer_int = mstatus_mie & mie_mtie & mip_mtip & int_window & ~soft_int;
 

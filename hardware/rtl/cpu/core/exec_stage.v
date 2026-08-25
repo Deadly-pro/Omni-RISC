@@ -135,6 +135,7 @@ trap_unit trap1(
     .mip_mtip(csr_mip_o[7]),
     .mie_msie(csr_mie_o[3]),
     .mip_msip(csr_mip_o[3]),
+    .ex_mem_mem_read(ex_mem_mem_read),
     .redirect_pending(redirect_pending),
     .redirect_target(redirect_target_q),
     .trap_valid(trap_valid),
@@ -161,6 +162,15 @@ assign redirect_target=result&~32'h1;
 // wrong-path pc as mepc (mret would jump into garbage). Track the last
 // redirect target and a short pending window so the interrupt's mepc can fall
 // back to the redirect target (the valid continuation point).
+//
+// NOTE: redirect_pending deliberately EXCLUDES the same-cycle redirect_valid.
+// On the cycle the redirect fires, the registered redirect_target_q still
+// holds the PREVIOUS redirect's target (it updates at that same edge); if an
+// interrupt latched mepc from it, mret would jump into the stale target (the
+// FreeRTOS tick-during-tail-jump crash). On that cycle id_ex_pc is the branch
+// itself, so mepc = id_ex_pc is correct (mret re-executes the branch). Only
+// the DRAIN cycles that follow (win != 0) need the redirect target, and by
+// then redirect_target_q has settled.
 reg [1:0]  redirect_win;
 reg [31:0] redirect_target_q;
 always @(posedge clk) begin
@@ -174,7 +184,7 @@ always @(posedge clk) begin
         redirect_win <= redirect_win - 1'b1;
     end
 end
-wire redirect_pending = redirect_valid | (redirect_win != 2'b00);
+wire redirect_pending = (redirect_win != 2'b00);
 
 wire [31:0] div_result;  wire div_busy, div_done;
 wire is_div    = id_ex_is_mul_div & id_ex_funct3[2];

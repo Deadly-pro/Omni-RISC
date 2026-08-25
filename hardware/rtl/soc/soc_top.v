@@ -17,7 +17,8 @@ module soc_top (
     input         reset,
     output        uart_tx,
     input         uart_rx,       // unused (no RX path yet)
-    output [7:0]  gpio_out
+    output [7:0]  gpio_out,
+    output [31:0] debug_pc
 );
     wire [31:0] pbus_addr, pbus_wdata, pbus_rdata;
     wire [3:0]  pbus_wen;
@@ -55,7 +56,8 @@ module soc_top (
         .mem_if_read_ack(mem_if_read_ack_unused),
         .mem_if_write_req(mem_if_write_req_unused),
         .mem_if_wdata(mem_if_wdata_unused),
-        .mem_if_write_ack(mem_if_write_ack_unused)
+        .mem_if_write_ack(mem_if_write_ack_unused),
+        .debug_pc(debug_pc)
     );
 
     uart u_uart(

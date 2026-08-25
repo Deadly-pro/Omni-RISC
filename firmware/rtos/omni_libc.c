@@ -3,9 +3,17 @@
  * Implements the few memory/string functions FreeRTOS references (see
  * firmware/rtos/include/{string,stdlib}.h). Written to compile with
  * -ffreestanding -fno-builtin so the definitions are actually emitted.
+ *
+ * Also carries a weak vApplicationTickHook default: configUSE_TICK_HOOK is
+ * enabled kernel-wide, and apps (e.g. rtos_metrics) override it with a
+ * strong definition when they need per-tick instrumentation.
  */
 #include <string.h>
 #include <stdlib.h>
+
+__attribute__((weak)) void vApplicationTickHook( void )
+{
+}
 
 void *memcpy( void *dest, const void *src, size_t n )
 {

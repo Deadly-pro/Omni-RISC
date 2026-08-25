@@ -105,7 +105,8 @@ module cpu2_top #(
         .snoop_addr(snoop_addr_1),  // snoop core1's bus
         .snoop_read(snoop_read_1),
         .snoop_write(snoop_write_1),
-        .snoop_ack (snoop_ack_1)
+        .snoop_ack (snoop_ack_1),
+        .debug_pc  (core0_dbg_pc)
     );
 
     // ---- Core 1 ----
@@ -122,13 +123,15 @@ module cpu2_top #(
         .snoop_addr(snoop_addr_0),  // snoop core0's bus
         .snoop_read(snoop_read_0),
         .snoop_write(snoop_write_0),
-        .snoop_ack (snoop_ack_0)
+        .snoop_ack (snoop_ack_0),
+        .debug_pc  (core1_dbg_pc)
     );
 
     // ---- SoC peripherals (UART, timer, GPIO) ----
     wire [31:0] uart_rdata, timer_rdata, gpio_rdata;
     wire        timer_mtip;
     wire        msip_unused;
+    wire [31:0] core0_dbg_pc, core1_dbg_pc;
 
     uart u_uart(
         .clk(clk), .reset(reset),
