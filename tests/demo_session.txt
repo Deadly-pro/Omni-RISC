@@ -1,0 +1,6 @@
+help
+uptime
+ps
+ticks
+gpu
+quit

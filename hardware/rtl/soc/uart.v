@@ -32,7 +32,11 @@ module uart (
     output reg    uart_tx
 );
     localparam CLKS_PER_BIT = 434;      // 50 MHz / 115200 baud
-    wire sel = (pbus_addr[31:20] == 12'h400) && ~pbus_addr[12];   // 0x40000000
+    // exact 4KB page decode: 0x40000000. The old [31:20] + ~addr[12] form
+    // aliased the GPU page (0x40002000, bit 13) — gpu_launch's WARP_PC0
+    // write (+0x00) matched the TX offset and reloaded the shift register
+    // mid-frame (shell transcript carried a NUL; found under tb_soc_shell).
+    wire sel = (pbus_addr[31:12] == 20'h40000);
 
     // ====================================================================
     // TX path (unchanged)

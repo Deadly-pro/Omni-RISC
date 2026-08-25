@@ -15,6 +15,18 @@ A **RISC-V Accelerated Processing Unit** — an RV32IM scalar CPU fused with a S
 - **Fits on the board** — synthesis/implementation on XC7A100T: **7,516 LUTs (11.9%) incl. 1,580 LUT-as-memory, 2,410 FF, 64.5 BRAM tiles, 15 DSP; 50 MHz timing met (WNS +0.685ns) → Fmax ≈ 51.8 MHz**
 - **Compliance** — riscv-arch-test rv32im: **53/54** (1 skip, Zifencei `fence.i`: split I/D BRAMs)
 
+## Interactive demo — a shell on the APU
+
+You can type into a FreeRTOS shell running on the RV32IM core, inside the Verilator simulation, over a bit-accurate UART (`tb_soc_shell` feeds stdin at real 115200 framing — 434 clk/bit, no zero-delay cheat):
+
+![Interactive FreeRTOS shell session](docs/shell_demo.gif)
+
+```bash
+./tests/test_shell.sh        # scripted session gate: help/uptime/ps/ticks/gpu/quit
+```
+
+The `gpu` command writes A/B vectors into the GPU scratchpad through the coherent host window, launches the vector-add kernel over MMIO, polls until the warp halts, and prints the checksum. The session is replayable with `asciinema play docs/shell_session.cast`.
+
 ## Architecture
 
 - **CPU**: RV32IM, 5-stage in-order pipeline, full forwarding + hazard detection, M-extension, M-mode CSRs + traps
@@ -35,6 +47,8 @@ A **RISC-V Accelerated Processing Unit** — an RV32IM scalar CPU fused with a S
 | GPU kernels | tb_gpu_top_kernels 66/66 (vector_add, relu, matmul, conv2d) |
 | SoC end-to-end | tb_soc_gpu: CPU writes A/B into GPU scratchpad, launches vector-add kernel over pbus, reads C back — `C = A + B` per lane |
 | FreeRTOS | tb_soc_rtos: real preemptive RTOS (V10.5.1, M-mode port) — two tasks preempt correctly, tick timing cycle-accurate |
+| RTOS metrics | ISR latency 92 cyc avg (1.84 µs), 2-switch yield round trip 492 cyc (9.84 µs), tick jitter ±194 cyc over 1200+ ticks |
+| Interactive shell | tb_soc_shell + tests/test_shell.sh: typed FreeRTOS shell over honest-baud UART, GPU kernel launched from a shell command |
 
 ## Project Structure
 

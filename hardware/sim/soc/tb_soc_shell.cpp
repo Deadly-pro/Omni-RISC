@@ -28,6 +28,7 @@
 #include <poll.h>
 #include <unistd.h>
 #include "verilated.h"
+#define VCD_TRACE 1
 #include "Vsoc_top.h"
 
 #ifdef VCD_TRACE
@@ -121,6 +122,9 @@ public:
 };
 
 static Vsoc_top* dut;
+#ifdef VCD_TRACE
+static VerilatedVcdC* tfp = nullptr;
+#endif
 static TxDecoder dec;
 static RxDriver  rxd;
 static std::vector<uint8_t> rxlog;
@@ -144,6 +148,9 @@ static void step(void) {
         fflush(stdout);
     }
     dut->clk = 0; dut->eval();
+#ifdef VCD_TRACE
+    if (tfp) tfp->dump(cyc * 10);          // 20ps clock -> 10ps per half
+#endif
     cyc++;
 }
 
@@ -186,7 +193,7 @@ int main(int argc, char** argv) {
     Verilated::traceEverOn(true);
     dut = new Vsoc_top;
 #ifdef VCD_TRACE
-    VerilatedVcdC* tfp = new VerilatedVcdC;
+    tfp = new VerilatedVcdC;
     if (open_wave) { dut->trace(tfp, 99); tfp->open(getenv("TB_VCD_FILE")
                         ? getenv("TB_VCD_FILE") : "waves/tb_soc_shell.vcd"); }
 #endif

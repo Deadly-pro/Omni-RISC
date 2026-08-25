@@ -131,11 +131,31 @@ New app `firmware/apps/shell/`, FreeRTOS-based:
   (vector-add sum=110 PASS over MMIO); `quit` prints `[SHELL] QUIT`, which
   the TB decodes to end the sim. `strcmp` added to `rtos/omni_libc.c`.
 
-## R5 — Package it  (~0.5 session)
+## R5 — Package it  (**DONE**, Aug 2026)
 
 - README: short GIF/asciinema of a typed session (`ps`, `ticks`, `gpu`).
 - AGENTS.md: mark Phase H fully done with metric numbers; add shell TBs to
   the regression list.
+- **Resume bullet (delivered):** "Built a RISC-V accelerated processing
+  unit (RV32IM CPU + SIMT GPU) on Artix-7 and ported FreeRTOS V10.5.1 to
+  it, measuring 1.8 us ISR latency and 9.8 us context switches on my own
+  5-stage pipeline; the interactive UART shell running in simulation can
+  launch GPU kernels over a coherent shared-memory window, and bringing it
+  up caught three real RTL bugs (pipeline hazard vs. interrupt timing,
+  UART address-decode aliasing, RX FIFO occupancy) that batch tests had
+  missed."
+
+- **DONE:** README has the typed-session section with `docs/shell_demo.gif`
+  (rendered by `scripts/make_shell_demo.py` from a real `tb_soc_shell`
+  capture — every byte is sim output, only the typing speed is synthesized)
+  and the replayable `docs/shell_session.cast`. Verification table gained
+  the RTOS-metrics and shell rows.
+- **Bonus find while packaging:** the demo transcript carried a stray NUL
+  before the `gpu` response — VCD forensics showed `gpu_launch`'s WARP_PC0
+  write (0x40002000, offset +0x00) aliasing into the UART TX register
+  because `uart.v`'s decode only excluded bit 12 (GPIO), not bit 13 (GPU).
+  Fixed to an exact 4KB decode; full regression + `make synth` green
+  (7,746 LUTs, WNS +3.348ns).
 - One-paragraph resume bullet: RV32IM APU, FreeRTOS V10.5.1 port with
   measured context-switch/jitter numbers, interactive UART shell in
   simulation, GPU kernel launched from shell command.
