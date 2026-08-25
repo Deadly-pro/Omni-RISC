@@ -201,6 +201,7 @@ module dual_core_top (
         .pbus_wen(pbus_wen),
         .pbus_read(pbus_read),
         .pbus_rdata(uart_rdata),
+        .uart_rx(uart_rx),  // dual-core tile exposes RX; TBs idle it high
         .uart_tx(uart_tx)
     );
 

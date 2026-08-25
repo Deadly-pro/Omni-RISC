@@ -54,24 +54,24 @@ Measure with `mtime` reads (50k cycles/tick resolution) and dump over UART:
 - **Why:** these three numbers are what you quote in interviews; "I measured
   1.8 µs context switch on my own core" beats "it runs FreeRTOS".
 
-## R2 — UART RX in RTL  (~1-2 sessions)
+## R2 — UART RX in RTL  (**DONE**, Aug 2026)
 
-Today `uart.v` is TX-only (`soc_top.v:19` — `uart_rx` unused). Memory map says
-so too (`docs/memory_map.md`: "TX-only 115200-8N1").
+Full duplex now: deserializer + 16-byte FIFO in `uart.v`, registers at
++0x04 STATUS (bit1 rx-ready, bit2 sticky overrun) and +0x08 RXDATA
+(read-pops). Driver: `uart_getchar()` / `uart_status()` in
+`firmware/drivers/uart.c`. Two testbenches:
 
-- Add RX deserializer to `uart.v`: synchronize rx, wait for start bit edge,
-  sample at mid-bit using the existing baud counter (115200 @ 50 MHz ≈ 434
-  clocks/bit), assemble 8 bits, push into a small FIFO (or single holding reg
-  for v1). Status bit "rx ready" + read-clears data register, appended to the
-  existing UART address space per `memory_map.md` conventions.
-- Vivado gotchas apply: registered read if the holding buffer becomes RAM-like,
-  no reset on inferred RAM, module output ports must not be `reg`-driven by
-  assigns (see AGENTS.md physical-design notes).
-- Firmware: extend `firmware/drivers/uart.c` with blocking `uart_getchar()`
-  (poll rx-ready).
-- TB: new `hardware/sim/soc/tb_uart_rx.cpp` driving `uart_rx` bit-banged at
-  434-clock periods; test framing across byte boundaries + back-to-back bytes.
-- **Gate:** tb_uart_rx PASS; `make synth` still clean.
+- `tb_uart_rx` (unit, drives the `uart` module directly): idle status,
+  glitch rejection, single byte, empty-read safety, back-to-back frames,
+  16-byte fill in order, overrun set/drop/clear — all deterministic.
+- `tb_soc_uart_rx` (integration, echo app `apps/uart_echo.c`): single
+  byte, back-to-back pair, full 0x00-0xFF sweep exact, 64-byte burst
+  degrades to an in-order prefix then recovers.
+
+Design note: FIFO occupancy is an explicit 5-bit counter — 4-bit pointers
+cannot distinguish full from empty at depth 16 (caught by tb_uart_rx).
+pbus reads are single-cycle strobes for peripheral loads, so pop-on-read
+is race-free. Vivado rules held: no reset on the inferred RAM array.
 
 ## R3 — Interactive simulation harness  (~1 session)
 

@@ -137,6 +137,7 @@ module cpu2_top #(
         .clk(clk), .reset(reset),
         .pbus_addr(pbus_addr), .pbus_wdata(pbus_wdata), .pbus_wen(pbus_wen),
         .pbus_read(pbus_read), .pbus_rdata(uart_rdata),
+        .uart_rx(1'b1),   // no RX pin on the 2-core tile; line idles high
         .uart_tx(uart_tx)
     );
 

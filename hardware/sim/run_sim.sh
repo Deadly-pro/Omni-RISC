@@ -169,6 +169,11 @@ if [[ "$TB_BASENAME" == tb_compliance ]]; then
     DUT_NAME="cpu_top"
 fi
 
+# UART RX unit testbench drives the uart module directly (no CPU)
+if [[ "$TB_BASENAME" == tb_uart_rx ]]; then
+    DUT_NAME="uart"
+fi
+
 # Dual-core testbenches use dual_core_top
 if [[ "$TB_BASENAME" == tb_dual_* ]] || [[ "$TB_BASENAME" == tb_litmus_* ]]; then
     DUT_NAME="dual_core_top"
@@ -292,6 +297,12 @@ fi
 if [[ "$TB_BASENAME" == tb_soc_rtos_metrics ]]; then
     make -C "$PROJECT_ROOT/firmware" APP=rtos_metrics rtos_metrics.hex >/dev/null 2>&1
     cp "$PROJECT_ROOT/firmware/rtos_metrics.hex" "$OBJ_DIR/program.hex"
+fi
+
+# UART RX integration test: echo app (rx -> tx round trip).
+if [[ "$TB_BASENAME" == tb_soc_uart_rx ]]; then
+    make -C "$PROJECT_ROOT/firmware" APP=uart_echo uart_echo.hex >/dev/null 2>&1
+    cp "$PROJECT_ROOT/firmware/uart_echo.hex" "$OBJ_DIR/program.hex"
 fi
 
 # APU GPU-dispatch test: stage the CPU firmware (benchmark_gpu) as program.hex

@@ -12,7 +12,7 @@ peripheral slaves.
 | `0x0000_0000` – `0x0000_FFFF` | IMEM (code)      | `instr_bram` inside `cpu_top` (fetch path). Firmware linked here. |
 | `0x0001_0000` – `0x0003_FFFF` | DMEM (data)      | `data_bram` inside `cpu_top`. Firmware data/stack live here (the 256KB window wraps the BRAM index). |
 | `0x0200_0000` – `0x0200_FFFF` | CLINT / timer    | `mtime` free-runs; `mtip` asserts when `mtime >= mtimecmp`. |
-| `0x4000_0000` – `0x4000_0FFF` | UART             | TX-only 115200-8N1. |
+| `0x4000_0000` – `0x4000_0FFF` | UART             | Full duplex 115200-8N1 (TX + RX FIFO). |
 | `0x4000_1000` – `0x4000_1FFF` | GPIO             | 8-bit output. |
 | `0x4000_2000` – `0x4000_2FFF` | GPU              | SIMT engine: cmd regs + kernel result readback. |
 
@@ -33,9 +33,12 @@ writing `mtimecmp` forward.
 | Offset | Register | Access | Notes |
 |--------|----------|--------|-------|
 | `+0x00` | TX       | W      | write a byte to transmit (8N1 @115200) |
-| `+0x04` | STATUS   | R      | bit0 = TX busy (1 = transmitting) |
+| `+0x04` | STATUS   | R      | bit0 = TX busy · bit1 = RX ready (FIFO non-empty) · bit2 = RX overrun (sticky) |
+| `+0x08` | RXDATA   | R      | head of the 16-byte RX FIFO; read pops one byte and clears overrun |
 
-Baud fixed: 115200 at a 50 MHz system clock (÷434).
+Baud fixed: 115200 at a 50 MHz system clock (÷434). RX frames are validated
+with a mid-start-bit resample (short glitches rejected); a full FIFO drops
+the incoming byte and sets the sticky overrun flag.
 
 ### GPIO (`hardware/rtl/soc/gpio.v`)
 
@@ -84,4 +87,4 @@ BRAMs from a single flat `$readmemh` hex.
 - **AXI4-Lite**: the pbus is a simple request/response decode; a full AXI4-Lite
   interconnect can replace the decoder in `soc_top` later without touching the
   CPU (it already exposes the master interface).
-- UART RX, extra timers/PLIC, and caches are future work.
+- Extra timers/PLIC, and caches are future work.

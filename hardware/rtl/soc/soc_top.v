@@ -16,7 +16,7 @@ module soc_top (
     input         clk,
     input         reset,
     output        uart_tx,
-    input         uart_rx,       // unused (no RX path yet)
+    input         uart_rx,       // serial RX (115200-8N1)
     output [7:0]  gpio_out,
     output [31:0] debug_pc
 );
@@ -68,6 +68,7 @@ module soc_top (
         .pbus_wen(pbus_wen),
         .pbus_read(pbus_read),
         .pbus_rdata(uart_rdata),
+        .uart_rx(uart_rx),
         .uart_tx(uart_tx)
     );
 
