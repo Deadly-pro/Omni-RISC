@@ -1,3 +1,7 @@
+// Omni-RISC APU — CPU: multiplier
+//
+// RV32M multiply: single-cycle combinational 32x32 via DSP48E1 inference
+// (synthesizes to 3 DSPs). All four mul variants per the table below.
 module multiplier(
   input  [31:0] operand_a,      // rs1 (already forwarded, from exec_stage)
   input  [31:0] operand_b,      // rs2 (already forwarded)

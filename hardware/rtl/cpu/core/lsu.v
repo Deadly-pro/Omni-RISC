@@ -1,3 +1,10 @@
+// Omni-RISC APU — CPU: lsu
+//
+// Load/store unit: word-aligns the address for data_bram, shifts store
+// data into the correct byte lanes, and generates per-byte write enables.
+// Loads return the whole word; sub-word extract/align happens in mem_stage
+// (ld_lsb + funct3). data_bram has a registered read, so loads assert
+// dmem_read and the value arrives the following cycle (mem_hold).
 module lsu (
       // ---- from the EX/MEM bundle ----
       input  [31:0] addr,          // ex_mem_alu_result — rs1+imm, any alignment

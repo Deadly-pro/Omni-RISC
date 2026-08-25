@@ -1,3 +1,10 @@
+// Omni-RISC APU — CPU: forwarding_net
+//
+// EX operand forwarding: bypasses distance-1 (EX/MEM) and distance-2
+// (MEM/WB) results over the regfile read values. Distance-1 wins ties
+// (newest value). Jump-link results forward pc+4, not the ALU result.
+// Loads cannot forward from EX/MEM (data not valid until the mem_hold
+// cycle) — that case is a hazard-unit stall instead.
  module forwarding_net (
       // ---- who the current EX instruction wants to read ----
       input  [4:0]  id_ex_rs1_addr,

@@ -1,3 +1,9 @@
+// Omni-RISC APU — CPU: divider
+//
+// RV32M divide/remainder: iterative shift-subtract, 32 cycles per op,
+// start/busy/done handshake with exec_stage. Implements RISC-V semantics
+// for the edge cases: divide-by-zero returns -1 (DIV) / dividend (REM),
+// overflow (MIN / -1) returns the dividend without trapping.
 module divider (
   input             clk,
   input             reset,

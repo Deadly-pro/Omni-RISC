@@ -32,7 +32,10 @@ The `gpu` command writes A/B vectors into the GPU scratchpad through the coheren
 - **CPU**: RV32IM, 5-stage in-order pipeline, full forwarding + hazard detection, M-extension, M-mode CSRs + traps
 - **Coherence rig** (`dual_core_top`): two cores sharing one `data_bram` through a snooping MSI D-cache and pbus arbiter — the coherence experiments that the APU's coarse-grained GPU sync builds on
 - **GPU**: SIMT engine (4 warps × 4 lanes), INT ALU, scratchpad memory, warp scheduler with latency hiding
-- **CPU↔GPU shared-memory window** (Phase F): the CPU writes kernel inputs into warp0's scratchpad and reads results back through `gpu_cmd_proc` host registers — no copies, coarse-grained coherence at kernel boundaries
+- **CPU↔GPU shared-memory window**: the CPU writes kernel inputs into the warp's scratchpad and reads results back through `gpu_cmd_proc` host registers — no copies, coarse-grained coherence at kernel boundaries
+- **FreeRTOS V10.5.1** — preemptive RTOS on the core (M-mode CLINT port): measured 1.8 µs ISR latency, 9.8 µs context switch, interactive UART shell
+
+Full hardware/software architecture: [`docs/architecture.md`](docs/architecture.md)
 - **Bus**: peripheral bus (pbus) with MMIO decode — CPU ↔ UART/timer/GPIO ↔ GPU
 - **Target**: Xilinx Artix-7 (XC7A100T), Vivado 2026.1 synthesis flow
 
@@ -62,7 +65,7 @@ hardware/sim/         — Verilator testbenches + run_sim.sh driver
 firmware/             — bare-metal RISC-V firmware (boot, drivers, apps, GPU kernels)
 scripts/              — elf_to_hex.py, gpu_asm.py (16-bit SIMT assembler)
 tests/                — riscv-arch-test compliance runner, GPU kernel tests
-docs/                 — architecture and design docs (read roadmap.md first)
+docs/                 — architecture.md (start here), gpu_design, memory_map, compliance results
 ```
 
 ## Quick Start
@@ -91,19 +94,6 @@ make impl
 - GTKWave (waveforms)
 - Vivado 2026.1 (synthesis/implementation; override path with `make VIVADO=...`)
 - Python 3 (`pip install -r requirements.txt`)
-
-## Build Phases
-
-| Phase | What | Status |
-|-------|------|--------|
-| A | CPU core: pipeline → hazards → M-ext → CSRs/traps → compliance (53/54) | ✅ |
-| B | SoC: UART, timer/CLINT, GPIO, firmware, bare-metal scheduler | ✅ |
-| C | L1 caches (I$ direct-mapped, D$ 2-way write-through) | ✅ |
-| D | 2-core snooping MSI coherence, LR/SC spinlock, litmus | ✅ |
-| E | SIMT GPU: scheduler, lanes, kernels, SoC integration | ✅ |
-| F | Coherent-APU integration (shared scratchpad window, acquire/release) | ✅ |
-| G | Synthesis + timing closure on Artix-7 (Vivado) | ✅ |
-| H | FreeRTOS bring-up: kernel boots, scheduler preempts two tasks | ✅ |
 
 ## License
 

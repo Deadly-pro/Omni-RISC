@@ -1,3 +1,7 @@
+> **HISTORICAL SPEC (July 2026).** Written before the core existed; it defines
+> the intended pipeline and the bring-up order that was followed. For the
+> core as built, read `docs/architecture.md`.
+
 # CPU Design — Omni-RISC APU
 
 ## Scope (Path A — in-order 5-stage)

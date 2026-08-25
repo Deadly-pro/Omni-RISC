@@ -4,7 +4,7 @@ Development notes and verification conventions for this repository.
 
 ## Project
 
-**Omni-RISC APU** — RISC-V Accelerated Processing Unit (RV32IM CPU + SIMT GPU), solo build. Target: coherent APU where two scalar RV32IM cores share coherent memory via **fine-grained snooping MSI** (write-through, write-invalidate, 2 agents only) and the GPU is a **coarse-grained** coherence participant (flush/invalidate + acquire/release at kernel boundaries). See `docs/roadmap.md` (locked plan, priority tiers) and `docs/architecture.md`.
+**Omni-RISC APU** — RISC-V Accelerated Processing Unit (RV32IM CPU + SIMT GPU), solo build. Target: coherent APU where two scalar RV32IM cores share coherent memory via **fine-grained snooping MSI** (write-through, write-invalidate, 2 agents only) and the GPU is a **coarse-grained** coherence participant (flush/invalidate + acquire/release at kernel boundaries). See `docs/history/roadmap.md` (locked plan, priority tiers) and `docs/architecture.md`.
 
 **Status (Aug 2026)** — the FLOOR is nearly done; do not treat old "Phase A in progress" docs as current:
 - **A CPU→compliance: DONE** — riscv-arch-test 53/54 (1 skip, Zifencei-fence.i: split I/D BRAMs make self-modifying code impossible). Results in `docs/compliance_results.md`.
@@ -95,7 +95,7 @@ Direct testbench invocation (more control than `make sim`):
 
 ## Repository layout (non-obvious pieces)
 
-- `hardware/rtl/cpu/core/` — one module per stage (`fetch/decode/exec/mem/wb_stage`), datapath (`alu`, `decoder`, `imm_gen`, `regfile`, `forwarding_net`, `branch_unit`, `multiplier`, `divider`, `lsu`, `pc_gen`), control (`pipeline_ctrl`, `hazard_unit`, `csr_file`, `trap_unit`); `cpu_top.v` wires them. Stub files carry a spec header — implement to that spec. Multicore: `cpu2_top.v` (2 cores + pbus arbiter), `dual_core_top.v` (shared data_bram + snoop bus, see `docs/roadmap.md` Phase D).
+- `hardware/rtl/cpu/core/` — one module per stage (`fetch/decode/exec/mem/wb_stage`), datapath (`alu`, `decoder`, `imm_gen`, `regfile`, `forwarding_net`, `branch_unit`, `multiplier`, `divider`, `lsu`, `pc_gen`), control (`pipeline_ctrl`, `hazard_unit`, `csr_file`, `trap_unit`); `cpu_top.v` wires them. Stub files carry a spec header — implement to that spec. Multicore: `cpu2_top.v` (2 cores + pbus arbiter), `dual_core_top.v` (shared data_bram + snoop bus, see `docs/history/roadmap.md` Phase D).
 - `hardware/rtl/cpu/cache/` — `l1_dcache.v`, `l1_icache.v`, `l1_dcache_msi.v`. Gated by `USE_CACHES` param on `cpu_top` (0=direct BRAMs for tb_cpu_top/compliance, 1=cached SoC). `mem_stage` has `SHARED_MEM` param (1 = dcache backing memory external, dual-core).
 - `hardware/rtl/gpu/` — `gpu_top.v` (pbus slave) + `gpu_cmd_proc.v` over `core/` (`gpu_fetch`, `gpu_decode`, `warp_scheduler`, `exec_lane`, `gpu_alu`, `gpu_lsu`, `gpu_regfile`, `gpu_scratchpad`).
 - `hardware/rtl/soc/` — live UART/timer(CLINT)/GPIO + `soc_top.v`. (The old `hardware/rtl/peripherals/` and the unused AXI bus modules in `hardware/rtl/bus/` were deleted as dead code; only `bus/pbus_arbiter.v` remains, used by `dual_core_top`.)

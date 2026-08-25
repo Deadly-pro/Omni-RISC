@@ -1,3 +1,11 @@
+// Omni-RISC APU — CPU: csr_file
+//
+// M-mode control/status registers: mstatus, mtvec, mepc, mcause, mie, mip,
+// mcycle/minstret. One CSR port (csr_en + funct3 = CSRRW/CSRRS/CSRRC and
+// immediate forms); reads are combinational, writes commit on the clock
+// edge. mip.MSIP is driven by the CLINT msip input, mip.MTIP by mtimecmp —
+// both are read-only from the CSR instruction path. csr_illegal flags any
+// unimplemented address so trap_unit can raise illegal-instruction.
 module csr_file (
     input             clk,
     input             reset,

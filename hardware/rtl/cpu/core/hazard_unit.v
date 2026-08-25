@@ -1,3 +1,11 @@
+// Omni-RISC APU — CPU: hazard_unit
+//
+// Load-use hazard detection: stall one cycle when the instruction in ID
+// sources a register that the load in EX has not produced yet. Only loads
+// need this (ALU results are forwarded in EX); the stall freezes PC and
+// IF/ID and bubbles ID/EX. Priority note: decode_stage gives the pipeline
+// freeze (hold) priority over flush — see the load;load;branch bug note in
+// AGENTS.md Phase H.
 
   module hazard_unit (
       // --- consumer currently in ID (still being decoded) ---

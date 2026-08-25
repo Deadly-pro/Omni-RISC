@@ -1,3 +1,9 @@
+> **HISTORICAL PLANNING DOC (July 2026) — superseded.** Written before the
+> hardware existed; it sequenced the build and got the interconnect wrong
+> (planned AXI4-Lite, built the simpler pbus). The current architecture is
+> documented in `docs/architecture.md`; current status in `AGENTS.md`.
+> Kept for the design rationale (coherence model, scope cuts).
+
 # Omni-RISC APU — Roadmap to the Coherent APU
 
 *Locked model, July 2026. This is the target and the sequenced path to it. Floor first; stretch tiers are gated behind a finished floor.*

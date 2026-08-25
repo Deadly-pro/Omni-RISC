@@ -1,3 +1,9 @@
+// Omni-RISC APU — CPU: wb_stage
+//
+// Writeback: selects the register-write value (ALU result, load data after
+// the sub-word align/extend done in MEM, or pc+4 for JAL/JALR) and routes
+// it with the destination address to the regfile write port. Pure
+// combinational — no state.
 module wb_stage (
       // ---- from the MEM/WB register ----
       input  [31:0] mem_wb_alu_result,
