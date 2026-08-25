@@ -39,7 +39,7 @@ FREERTOS_ASM_OBJ := $(FREERTOS_PORT)/portASM.o
 FREERTOS_INC   := -I$(FREERTOS_ROOT)/include -I$(FREERTOS_PORT) -Irtos -Irtos/include
 
 $(FREERTOS_C_OBJ): CFLAGS += $(FREERTOS_INC) -fno-builtin
-apps/rtos.o apps/rtos_q.o apps/rtos_sem.o apps/rtos_metrics.o: CFLAGS += $(FREERTOS_INC)
+apps/rtos.o apps/rtos_q.o apps/rtos_sem.o apps/rtos_metrics.o apps/shell.o: CFLAGS += $(FREERTOS_INC)
 
 $(FREERTOS_ASM_OBJ): FREERTOS_ASM_FLAGS := -march=rv32im_zicsr_zifencei -mabi=ilp32 -c -I$(FREERTOS_PORT) -I$(FREERTOS_EXT)
 
@@ -54,7 +54,7 @@ APP ?= hello
 all: $(APP).hex
 
 # Link
-ifeq ($(filter rtos rtos_q rtos_sem rtos_metrics,$(APP)),$(APP))
+ifeq ($(filter rtos rtos_q rtos_sem rtos_metrics shell,$(APP)),$(APP))
 $(APP).elf: $(BOOT_OBJ) $(DRIVER_OBJ) apps/$(APP).o $(FREERTOS_C_OBJ) $(FREERTOS_ASM_OBJ)
 	$(CC) $(CFLAGS) -T boot/linker_rtos.ld -nostdlib -o $@ $^
 else

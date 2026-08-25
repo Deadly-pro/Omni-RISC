@@ -73,7 +73,7 @@ cannot distinguish full from empty at depth 16 (caught by tb_uart_rx).
 pbus reads are single-cycle strobes for peripheral loads, so pop-on-read
 is race-free. Vivado rules held: no reset on the inferred RAM array.
 
-## R3 — Interactive simulation harness  (~1 session)
+## R3 — Interactive simulation harness  (**DONE**, Aug 2026)
 
 Verilator TBs here are batch (run to MAX_CYCLES, print UART to stdout). Make
 one that talks back:
@@ -89,8 +89,18 @@ one that talks back:
 - Wire staging into `run_sim.sh` following the `tb_soc_rtos` block
   (`firmware APP=shell` → program.hex).
 - **Gate:** you can type `help<Enter>` and see the echo + response.
+- **GATE PASSED** — `tests/test_shell.sh` pipes `tests/shell_session.txt`
+  (help/uptime/ps/ticks/gpu/foo/backspace-edit/quit) into the sim at real
+  framing and asserts the full transcript; all checks green.
+- Two harness lessons baked into `tb_soc_shell.cpp`: stdin is pulled ONE
+  LINE at a time (the 16-byte RX FIFO cannot absorb a pasted script while
+  the console task sleeps up to 2ms), and each line waits for its response
+  to drain (>=4ms since newline AND TX quiet >=2ms — global TX silence
+  alone releases while the answer is still pending). Frames carry a 2-bit-
+  time idle gap; typed bytes echo to stderr, decoded TX streams live to
+  stdout.
 
-## R4 — The shell firmware  (~1-2 sessions)
+## R4 — The shell firmware  (**DONE**, Aug 2026)
 
 New app `firmware/apps/shell/`, FreeRTOS-based:
 
@@ -112,6 +122,14 @@ New app `firmware/apps/shell/`, FreeRTOS-based:
   `make firmware APP=shell`.
 - **Gate:** scripted session test — a `.txt` of piped commands produces
   expected output diff (make it a repeatable `tests/test_shell.sh`).
+- **GATE PASSED** — same script as R3. App: `firmware/apps/shell.c`
+  (`APP=shell`, linked with FreeRTOS). Console task polls `uart_getchar()`,
+  echoes, backspace (`0x7F`/`0x08` -> `" "`), dispatch table.
+  `ps` uses `uxTaskGetSystemState` (`configUSE_TRACE_FACILITY=1`; no
+  run-time-stats timer needed); `ticks` reads the strong tick-hook's
+  min/max/count + last-16 ring; `gpu` reuses the Phase-F host window
+  (vector-add sum=110 PASS over MMIO); `quit` prints `[SHELL] QUIT`, which
+  the TB decodes to end the sim. `strcmp` added to `rtos/omni_libc.c`.
 
 ## R5 — Package it  (~0.5 session)
 

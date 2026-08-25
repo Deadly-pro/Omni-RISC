@@ -299,6 +299,15 @@ if [[ "$TB_BASENAME" == tb_soc_rtos_metrics ]]; then
     cp "$PROJECT_ROOT/firmware/rtos_metrics.hex" "$OBJ_DIR/program.hex"
 fi
 
+# Interactive FreeRTOS shell (R3/R4): stage the shell app as program.hex.
+# NOTE: tb_soc_shell needs a GPU kernel for its `gpu` command; soc_top's
+# gpu_top IMEM_FILE defaults to gpu_demo.hex, assembled on demand here too.
+if [[ "$TB_BASENAME" == tb_soc_shell ]]; then
+    make -C "$PROJECT_ROOT/firmware" APP=shell shell.hex >/dev/null 2>&1
+    cp "$PROJECT_ROOT/firmware/shell.hex" "$OBJ_DIR/program.hex"
+    python3 "$PROJECT_ROOT/scripts/gpu_asm.py"         "$PROJECT_ROOT/firmware/gpu_kernels/gpu_demo.S" -o "$OBJ_DIR/gpu_demo.hex"         >/dev/null
+fi
+
 # UART RX integration test: echo app (rx -> tx round trip).
 if [[ "$TB_BASENAME" == tb_soc_uart_rx ]]; then
     make -C "$PROJECT_ROOT/firmware" APP=uart_echo uart_echo.hex >/dev/null 2>&1

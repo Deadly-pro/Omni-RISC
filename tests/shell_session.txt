@@ -1,0 +1,8 @@
+help
+uptime
+ps
+ticks
+gpu
+foo
+helqp
+quit

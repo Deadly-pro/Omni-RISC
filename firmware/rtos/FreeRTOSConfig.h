@@ -28,6 +28,7 @@
 #define configUSE_COUNTING_SEMAPHORES       1
 #define configUSE_TIMERS                    0
 #define configQUEUE_REGISTRY_SIZE           0
+#define configUSE_TRACE_FACILITY            1
 
 /* ---- stack / overflow ------------------------------------------------ */
 #define configCHECK_FOR_STACK_OVERFLOW      2
