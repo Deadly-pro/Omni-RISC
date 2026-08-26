@@ -45,6 +45,8 @@ You can type into a FreeRTOS shell running on the RV32IM core, inside the Verila
 
 The `gpu` command exercises the CPU↔GPU coherent shared-memory window end-to-end. The session is replayable with `asciinema play docs/shell_session.cast`.
 
+> **Terminal notes**: `console.sh` puts your terminal in raw mode (`stty raw -echo`). The shell firmware echoes each character locally, so you see what you type once. Backspace (DEL) works — the firmware erases the last character. Tab is not supported (no completion); it's silently dropped. If you see every character doubled, a second echo source is active — check your terminal emulator's local-echo setting.
+
 ## Architecture
 
 - **CPU**: RV32IM, 5-stage in-order pipeline, full forwarding + hazard detection, M-extension, M-mode CSRs + traps

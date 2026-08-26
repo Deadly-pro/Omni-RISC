@@ -9,9 +9,11 @@
  *     deserializer must see valid framing, that honesty is the point.
  *   - no fixed cycle cap: runs until the shell's `quit` marker is decoded,
  *     or stdin hits EOF and the TX stream goes quiet; 10G-cycle safety kill.
- *   - typed bytes are echoed to stderr as they are consumed (so a live
- *     session feels like a terminal and piped transcripts stay clean on
- *     stdout); decoded TX goes to stdout in real time.
+ *   - typed bytes are echoed to stderr when piped (test_shell.sh), but
+ *     suppressed in a live TTY session (console.sh) — the shell firmware
+ *     already echoes via UART TX to stdout, so a second echo doubles every
+ *     character and turns control bytes (backspace 0x7f, tab 0x09) into
+ *     literal "\xNN" text.
  *   - after each newline the TB waits for the response to drain (no new TX
  *     byte for QUIESCE_CYCLES) before feeding the next line — a 16-byte RX
  *     FIFO cannot absorb a whole pasted script while the console task sleeps.
@@ -132,6 +134,10 @@ static bool  stdin_eof = false;
 static bool  drain_line = false;   // just queued '\n': let the response finish
 static uint64_t drain_start = 0;   // cycle the newline was queued
 static uint64_t cyc = 0;
+static bool  live_tty = false;     // stdin is a real terminal (console.sh):
+                                    // suppress our stderr echo — the shell
+                                    // firmware echoes via UART->stdout, so a
+                                    // second echo here doubles every char
 
 static bool tb_debug(void) { static int d = -1; if (d < 0) d = getenv("TB_DEBUG") ? 1 : 0; return d == 1; }
 
@@ -166,10 +172,17 @@ static void pump_stdin(void) {
         if (n <= 0) { stdin_eof = true; return; }
         rxd.push(b);
         if (tb_debug()) fprintf(stderr, "[RX-FED] %llu %02x '%c'\n", (unsigned long long)cyc, b, (b >= 32 && b < 127) ? b : '.');
-        if (b >= 32 && b < 127) fprintf(stderr, "%c", b);
-        else if (b == '\n') fprintf(stderr, "\n");
-        else fprintf(stderr, "\\x%02x", b);
-        fflush(stderr);
+        if (!live_tty) {
+            /* When piped (test_shell.sh), echo consumed bytes to stderr so
+               a live transcript reader can see input.  In a real TTY session
+               (console.sh) the firmware already echoes via UART->stdout; a
+               second echo here doubles every character and turns control
+               bytes (backspace 0x7f, tab 0x09) into literal "\xNN" text. */
+            if (b >= 32 && b < 127) fprintf(stderr, "%c", b);
+            else if (b == '\n') fprintf(stderr, "\n");
+            else fprintf(stderr, "\\x%02x", b);
+            fflush(stderr);
+        }
         if (b == '\n') { drain_line = true; drain_start = cyc; }
     }
 }
@@ -189,6 +202,7 @@ int main(int argc, char** argv) {
     if (getenv("TB_VCD")) open_wave = true;
     if (getenv("TB_MAX")) MAX_CYCLES = atoll(getenv("TB_MAX"));
     setvbuf(stderr, NULL, _IONBF, 0);
+    live_tty = isatty(STDIN_FILENO);   // 1 = interactive terminal, 0 = piped
     Verilated::commandArgs(argc, argv);
     Verilated::traceEverOn(true);
     dut = new Vsoc_top;
