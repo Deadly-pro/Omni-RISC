@@ -20,7 +20,8 @@ module timer (
     output [31:0] pbus_rdata,
 
     output       mtip,
-    output       msip
+    output       msip,
+    input        gpu_msip       // GPU completion interrupt, ORed into msip
 );
     wire sel = (pbus_addr[31:24] == 8'h02);          // 0x02000000 region
 
@@ -48,7 +49,7 @@ module timer (
     end
 
     assign mtip = (mtime >= mtimecmp);
-    assign msip = msip_r;
+    assign msip = msip_r | gpu_msip;
 
     // read path
     reg [31:0] rdata;

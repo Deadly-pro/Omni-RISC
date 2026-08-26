@@ -21,6 +21,9 @@ module gpu_cmd_proc (
     output        cmd_launch,
     // status
     input  [3:0]  active_warps,
+    // completion interrupt: level-high when a warp just finished; cleared
+    // on STATUS read (so the ISR reads STATUS, then clears msip = 0)
+    output        gpu_done,
     // shared-memory window into warp0's scratchpad (128-bit = 4 lanes at one
     // word index: [31:0]=lane0, [63:32]=lane1, [95:64]=lane2, [127:96]=lane3)
     input  [127:0] host_rdata,
@@ -45,6 +48,27 @@ module gpu_cmd_proc (
     reg        launch_pending;
     reg [1:0]  launch_warp_id;
     reg [9:0]  host_win;
+
+    // done latch: set when active_warps goes 1->0, combinational-clear on read
+    reg        gpu_done_latch;
+    reg        was_busy;
+    wire       gpu_done_clear = pbus_read && (pbus_addr[5:0] == 6'h20);
+
+    always @(posedge clk) begin
+        if (reset) begin
+            gpu_done_latch <= 1'b0;
+            was_busy       <= 1'b0;
+        end else begin
+            was_busy <= |active_warps;
+            if (gpu_done_clear)
+                gpu_done_latch <= 1'b0;
+            else if (was_busy && !|active_warps)
+                gpu_done_latch <= 1'b1;
+        end
+    end
+    // combinational so the ISR's read-STATUS clears the latch before the
+    // write to msip (even though the register clears on the next edge)
+    assign gpu_done = gpu_done_latch & ~gpu_done_clear;
 
     assign pbus_ready = 1'b1;
 

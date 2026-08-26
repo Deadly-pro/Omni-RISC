@@ -10,9 +10,19 @@
  */
 #include <string.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 __attribute__((weak)) void vApplicationTickHook( void )
 {
+}
+
+/* Weak default for non-timer interrupts (MSI -> GPU completion, etc.)
+   The strong override in shell.c gives the semaphore; apps that don't use
+   the GPU interrupt clear msip and return. */
+__attribute__((weak)) void freertos_risc_v_application_interrupt_handler( void )
+{
+    /* clear machine software interrupt pending (CLINT msip) */
+    *(volatile uint32_t *)0x02000000u = 0;
 }
 
 void *memcpy( void *dest, const void *src, size_t n )

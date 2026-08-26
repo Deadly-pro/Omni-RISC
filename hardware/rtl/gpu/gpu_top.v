@@ -20,7 +20,8 @@ module gpu_top #(
     output        pbus_ready,
 
     // status
-    output [3:0]  active_warps
+    output [3:0]  active_warps,
+    output        gpu_done       // completion interrupt (see gpu_cmd_proc)
 );
 
     // ---- warp_scheduler <-> gpu_fetch ----
@@ -65,6 +66,7 @@ module gpu_top #(
         .cmd_warp_id(cmd_warp_id),
         .cmd_launch(cmd_launch),
         .active_warps(active_warps),
+        .gpu_done(gpu_done),
         .host_rdata(host_rdata0),
         .host_raddr(host_raddr),
         .host_wbank(host_wbank),

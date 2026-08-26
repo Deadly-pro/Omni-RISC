@@ -214,7 +214,8 @@ module dual_core_top (
         .pbus_read(pbus_read),
         .pbus_rdata(timer_rdata),
         .mtip(mtip),
-        .msip(msip_unused)
+        .msip(msip_unused),
+        .gpu_msip(1'b0)
     );
 
     gpio u_gpio (

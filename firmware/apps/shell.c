@@ -15,6 +15,7 @@
  */
 #include "FreeRTOS.h"
 #include "task.h"
+#include "semphr.h"
 #include <string.h>
 
 #include "../drivers/uart.h"
@@ -25,6 +26,24 @@ extern void freertos_risc_v_trap_handler(void);
 #define MTIME_LO (*(volatile uint32_t *)0x0200BFF8u)
 
 #define LINE_MAX 64
+
+/* ---- GPU completion interrupt (MSI path) -------------------------------- */
+/* Binary semaphore posted from the ISR when a launched warp halts. */
+static SemaphoreHandle_t xGpuSem;
+static volatile uint32_t gpu_irq_count;
+
+void freertos_risc_v_application_interrupt_handler(void)
+{
+    /* read STATUS first: clears the GPU done latch combinationally, so the
+       write to msip below sees the combined msip = 0 (no re-trigger) */
+    (void)*(volatile uint32_t *)GPU_STATUS;
+    gpu_irq_count++;
+    *(volatile uint32_t *)0x02000000u = 0;   /* clear msip */
+    BaseType_t wk = pdFALSE;
+    if (xGpuSem)
+        xSemaphoreGiveFromISR(xGpuSem, &wk);
+    portYIELD_FROM_ISR(wk);
+}
 
 /* ---- number printing ------------------------------------------------- */
 static void put_dec(uint32_t v)
@@ -155,7 +174,12 @@ static void cmd_gpu(void)
         gpu_write_word(i, 16, gb[i]);   /* lane i word 16 = B[i] */
     }
     gpu_launch(0);
-    gpu_wait_idle();
+    if (xGpuSem) {
+        if (xSemaphoreTake(xGpuSem, pdMS_TO_TICKS(1000)) != pdTRUE)
+            gpu_wait_idle();       /* timeout fallback: poll */
+    } else {
+        gpu_wait_idle();
+    }
     uint32_t sum = 0;
     int ok = 1;
     for (unsigned i = 0; i < NVEC; i++) {
@@ -165,6 +189,8 @@ static void cmd_gpu(void)
     }
     uart_puts("gpu sum=");
     put_dec(sum);
+    uart_puts(" irq=");
+    put_dec(gpu_irq_count);
     uart_puts(ok ? " PASS\r\n" : " FAIL\r\n");
 }
 
@@ -383,7 +409,8 @@ void app_main(void)
 {
     uart_init();
     __asm volatile("csrw mtvec, %0" ::"r"((uint32_t)freertos_risc_v_trap_handler));
-    __asm volatile("csrs mie, %0" ::"r"(0x8));   /* mie.MSIE (unused, kept uniform) */
+    __asm volatile("csrs mie, %0" ::"r"(0x8));   /* mie.MSIE: GPU completion IRQ */
+    xGpuSem = xSemaphoreCreateBinary();
 
     BaseType_t r = xTaskCreate(vConsoleTask, "console",
                                configMINIMAL_STACK_SIZE * 2, NULL, 2, NULL);

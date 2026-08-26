@@ -25,6 +25,7 @@ module soc_top (
     wire        pbus_read;
     wire        mtip;
     wire        msip;
+    wire        gpu_done;
 
     wire [31:0] uart_rdata, timer_rdata, gpio_rdata, gpu_rdata;
 
@@ -81,7 +82,8 @@ module soc_top (
         .pbus_read(pbus_read),
         .pbus_rdata(timer_rdata),
         .mtip(mtip),
-        .msip(msip)
+        .msip(msip),
+        .gpu_msip(gpu_done)
     );
 
     gpio u_gpio(
@@ -108,7 +110,8 @@ module soc_top (
         .pbus_read(pbus_read),
         .pbus_rdata(gpu_rdata),
         .pbus_ready(gpu_ready_unused),
-        .active_warps(gpu_active_unused)
+        .active_warps(gpu_active_unused),
+        .gpu_done(gpu_done)
     );
 
     // each slave drives 0 when not selected, so ORing selects the winner
