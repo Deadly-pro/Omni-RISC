@@ -176,6 +176,50 @@ int main(int argc, char** argv) {
             check(lbl, exp, rd_bank(sp[3], l, 16 + i));
         }
 
+    // ---- barrier: 4-warp marker sync test ----
+    // All warps run the same kernel at byte 0x400 (word base 0x200, clear of
+    // conv2d at 0x1BA). Each warp writes PRE 0x55 to its own scratchpad word 0,
+    // hits BARRIER, reads word 0 back into word 1 (post-barrier resume proof),
+    // and writes POST 0xAA to word 2. Scratchpads are per-warp (no cross-warp
+    // shared memory in this GPU), so the test verifies each warp's bank set
+    // independently: no deadlock + every marker present.
+    if (HEX("barrier", 0x200) < 0) return 2;
+    // diag: a lone warp must not deadlock on the barrier (expected count = 1)
+    pbus_write(0x40002000, 0x400);
+    pbus_write(0x40002010, 0x80000000);
+    tick();
+    check("barrier diag: 1 warp active", 0x1, dut->active_warps);
+    cyc = 0;
+    while (dut->active_warps && cyc < 2000) { tick(); cyc++; }
+    check("barrier diag: lone warp released (no deadlock)", 0, dut->active_warps);
+    printf("  (barrier diag completed after %d cycles)\n", cyc);
+
+    // full sync: all four warps at the barrier
+    pbus_write(0x40002000, 0x400);
+    pbus_write(0x40002004, 0x400);
+    pbus_write(0x40002008, 0x400);
+    pbus_write(0x4000200C, 0x400);
+    pbus_write(0x40002010, 0x80000000);
+    pbus_write(0x40002010, 0x80000001);
+    pbus_write(0x40002010, 0x80000002);
+    pbus_write(0x40002010, 0x80000003);
+    tick();
+    check("barrier: 4 warps active", 0xF, dut->active_warps);
+    cyc = 0;
+    while (dut->active_warps && cyc < 4000) { tick(); cyc++; }
+    check("barrier: all warps released (no deadlock)", 0, dut->active_warps);
+    printf("  (barrier test completed after %d cycles)\n", cyc);
+    // every warp: PRE at word 0, post-barrier load at word 1, POST at word 2
+    for (int w = 0; w < 4; w++)
+        for (int l = 0; l < 4; l++) {
+            snprintf(lbl, sizeof lbl, "barrier warp%d lane%d PRE", w, l);
+            check(lbl, 0x55, rd_bank(sp[w], l, 0));
+            snprintf(lbl, sizeof lbl, "barrier warp%d lane%d resumed", w, l);
+            check(lbl, 0x55, rd_bank(sp[w], l, 1));
+            snprintf(lbl, sizeof lbl, "barrier warp%d lane%d POST", w, l);
+            check(lbl, 0xAA, rd_bank(sp[w], l, 2));
+        }
+
     printf("\n%d/%d checks passed\n", checks - fails, checks);
     delete dut;
     if (fails) { printf("TB RESULT: FAIL\n"); return 1; }

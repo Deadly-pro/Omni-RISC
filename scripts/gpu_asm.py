@@ -53,6 +53,8 @@ def assemble(lines):
         elif op == 'BR':
             t = labels[args[0]] if args[0] in labels else int(args[0], 0)
             w = (2 << 12) | (t & 0xFF)
+        elif op == 'BARRIER':
+            w = (6 << 12) | 0      # warp-level sync; all lanes
         elif op == 'HALT':
             w = 0xF000
         else:

@@ -37,14 +37,21 @@ module warp_scheduler #(
     // exec completion
     input  [1:0]  complete_warp_id,
     input         complete_valid,
-
+    // barrier
+    input         issue_is_barrier, // BARRIER instruction from decode
     // status
     output [3:0]  active_warps     // bitmap of active warps
 );
+    // barrier sync state
+    reg [2:0] barrier_cnt;
+    reg [2:0] barrier_expected;
+    wire [2:0] popcnt = {1'b0,active_warps[0]} + {1'b0,active_warps[1]} +
+                        {1'b0,active_warps[2]} + {1'b0,active_warps[3]};
 
-    localparam ST_IDLE  = 2'b00;
-    localparam ST_READY = 2'b01;
-    localparam ST_EXEC  = 2'b10;
+    localparam ST_IDLE    = 2'b00;
+    localparam ST_READY   = 2'b01;
+    localparam ST_EXEC    = 2'b10;
+    localparam ST_BARRIER = 2'b11;     // waiting at a BARRIER instruction
 
     // per-warp state
     reg [31:0] pc     [0:NUM_WARPS-1];
@@ -85,15 +92,32 @@ module warp_scheduler #(
                 pc[i]     <= 32'b0;
                 status[i] <= ST_IDLE;
             end
+            barrier_cnt <= 3'b0;
+            barrier_expected <= 3'b0;
         end else begin
             if (issue_valid && issue_ready) begin
                 if (issue_is_halt) begin
                     status[issue_id] <= ST_IDLE;
+                end else if (issue_is_barrier) begin
+                    status[issue_id] <= ST_BARRIER;
+                    pc[issue_id] <= pc[issue_id] + 32'd2;
+                    if (barrier_cnt == 3'b0)
+                        barrier_expected <= popcnt;
+                    barrier_cnt <= barrier_cnt + 3'd1;
                 end else begin
                     status[issue_id] <= ST_EXEC;
                     pc[issue_id] <= issue_is_branch ? {24'b0, issue_branch_target}
                                                     : pc[issue_id] + 32'd2;
                 end
+            end
+
+            // deferred release: one cycle after the last arrival, ST_BARRIER -> ST_READY
+            if (barrier_cnt != 3'b0 && barrier_cnt == barrier_expected) begin
+                for (i = 0; i < NUM_WARPS; i = i + 1)
+                    if (status[i] == ST_BARRIER)
+                        status[i] <= ST_READY;
+                barrier_cnt <= 3'b0;
+                barrier_expected <= 3'b0;
             end
 
             if (complete_valid && status[complete_warp_id] == ST_EXEC)

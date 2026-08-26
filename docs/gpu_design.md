@@ -13,7 +13,9 @@ op 0  ALU   f3: ADD SUB AND OR XOR SLT SLTU SLL
 op 4  ALU2  f3: SRL SRA MUL
 op 1  LSU   bit0: 0 = LD rd <- sp[rs1], 1 = ST sp[rs1] <- rs2
 op 2  BR    instr[7:0] = byte target
+op 3  MUL   legacy alias for multiply
 op 5  LDI   rd <- signext(instr[8:0])
+op 6  BARRIER  warp-level sync: wait for all active warps to arrive
 op F  HALT
 ```
 
@@ -49,7 +51,11 @@ op F  HALT
 
 - **warp_scheduler**: per-warp PC and 2-bit status; a warp in READY is
   issued round-robin, HALT moves it to DONE. Multiple READY warps hide
-  scratchpad/ALU latency — the SIMT analog of a scoreboard.
+  scratchpad/ALU latency — the SIMT analog of a scoreboard. The `BARRIER`
+  opcode parks a warp in a WAIT state until every active warp has issued its
+  own `BARRIER`; then all are released together (a lone active warp passes
+  immediately). A warp that never reaches the barrier (e.g. divergent early
+  exit) deadlocks the group — undefined behavior, same as CUDA.
 - **Registers**: `gpu_regfile` — per-warp, per-lane register file
   (4 warps × 4 lanes × 8 regs × 32-bit). Implemented as LUTRAM with **no
   reset** (BRAM/LUTRAM cannot be reset; adding one flattens it to FFs).

@@ -30,6 +30,7 @@ module gpu_decode (
     output [31:0] ldi_imm,      // sign-extended imm9, broadcast at warp level
     output        is_halt,
     output        is_branch,
+    output        is_barrier,   // BARRIER: warp-level sync (all lanes)
     output [7:0]  branch_target
 );
 
@@ -41,6 +42,7 @@ module gpu_decode (
     localparam OP_MUL  = 4'h3;
     localparam OP_ALU2 = 4'h4;
     localparam OP_LDI  = 4'h5;
+    localparam OP_BAR  = 4'h6;   // BARRIER: all active warps sync
     localparam OP_HALT = 4'hF;
 
     assign alu_op    = (opcode == OP_ALU)  ? {1'b0, instr[2:0]} :
@@ -59,6 +61,7 @@ module gpu_decode (
     assign ldi_imm   = {{23{instr[8]}}, instr[8:0]};
     assign is_halt   = (opcode == OP_HALT);
     assign is_branch = (opcode == OP_BR);
+    assign is_barrier = (opcode == OP_BAR);
 
     assign reg_write = (opcode == OP_ALU) || (opcode == OP_ALU2) ||
                        (opcode == OP_MUL) || (opcode == OP_LDI)  || mem_read;

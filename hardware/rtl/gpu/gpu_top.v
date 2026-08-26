@@ -79,7 +79,7 @@ module gpu_top #(
     wire [3:0]  dec_alu_op;
     wire [2:0]  dec_rd_addr, dec_rs1_addr, dec_rs2_addr;
     wire        dec_reg_write, dec_mem_read, dec_mem_write;
-    wire        dec_is_ldi, dec_is_halt, dec_is_branch;
+    wire        dec_is_ldi, dec_is_halt, dec_is_branch, dec_is_barrier;
     wire [31:0] dec_ldi_imm;
     wire [7:0]  dec_branch_target;
 
@@ -96,6 +96,7 @@ module gpu_top #(
         .ldi_imm(dec_ldi_imm),
         .is_halt(dec_is_halt),
         .is_branch(dec_is_branch),
+        .is_barrier(dec_is_barrier),
         .branch_target(dec_branch_target)
     );
 
@@ -112,6 +113,7 @@ module gpu_top #(
         .fetch_valid(fetch_valid),
         .issue_is_halt(dec_is_halt),
         .issue_is_branch(dec_is_branch),
+        .issue_is_barrier(dec_is_barrier),
         .issue_branch_target(dec_branch_target),
         .issue_warp_id(issue_warp_id),
         .issue_instr(issue_instr),

@@ -62,7 +62,7 @@ module gpu_cmd_proc (
             was_busy <= |active_warps;
             if (gpu_done_clear)
                 gpu_done_latch <= 1'b0;
-            else if (was_busy && !|active_warps)
+            else if (was_busy && !(|active_warps))
                 gpu_done_latch <= 1'b1;
         end
     end
