@@ -10,8 +10,14 @@ LD      := $(PREFIX)ld
 OBJCOPY := $(PREFIX)objcopy
 OBJDUMP := $(PREFIX)objdump
 
-CFLAGS  := -march=rv32im_zicsr_zifencei -mabi=ilp32 -Os -Wall -ffreestanding -nostdlib -MMD -MP
-LDFLAGS := -T boot/linker.ld -nostdlib
+# -fno-pie/-no-pie are load-bearing, not cosmetic. The Linux-targeting
+# riscv64-linux-gnu-gcc defaults to -fPIE; on a loader-less target that turns
+# `la sp, _stack_top` into a GOT-relative load (auipc+lw from .got) and leaves
+# gp/GOT assumptions that nothing initialises, so the image boots, prints the
+# banner and then corrupts itself (observed: endless reboot loop). Non-PIC
+# codegen boots and runs the whole shell session.
+CFLAGS  := -march=rv32im_zicsr_zifencei -mabi=ilp32 -Os -Wall -ffreestanding -nostdlib -MMD -MP -fno-pie
+LDFLAGS := -T boot/linker.ld -nostdlib -no-pie
 
 BOOT_SRCS   := boot/startup.S boot/trap_handler.S boot/boot.c
 DRIVER_SRCS := drivers/uart.c drivers/timer.c drivers/gpio.c drivers/gpu.c
@@ -41,13 +47,19 @@ FREERTOS_INC   := -I$(FREERTOS_ROOT)/include -I$(FREERTOS_PORT) -Irtos -Irtos/in
 $(FREERTOS_C_OBJ): CFLAGS += $(FREERTOS_INC) -fno-builtin
 apps/rtos.o apps/rtos_q.o apps/rtos_sem.o apps/rtos_metrics.o apps/shell.o: CFLAGS += $(FREERTOS_INC)
 
-$(FREERTOS_ASM_OBJ): FREERTOS_ASM_FLAGS := -march=rv32im_zicsr_zifencei -mabi=ilp32 -c -I$(FREERTOS_PORT) -I$(FREERTOS_EXT)
+$(FREERTOS_ASM_OBJ): FREERTOS_ASM_FLAGS := -march=rv32im_zicsr_zifencei -mabi=ilp32 -c -fno-pie -I$(FREERTOS_PORT) -I$(FREERTOS_EXT)
 
 FREERTOS_DEPS := $(FREERTOS_C_SRC:.c=.d)
 
 -include $(DEPS) $(FREERTOS_DEPS) apps/$(APP).d
 
 APP ?= hello
+
+# Pin the default goal. Without this, the `-include $(DEPS)` above injects a
+# rule from boot/startup.d as the first target, so a goal-less
+# `make -C firmware` (which is what the root `make firmware` runs) builds
+# boot/startup.o, prints "is up to date" and exits 0 without producing a hex.
+.DEFAULT_GOAL := all
 
 .PHONY: all clean dump
 
@@ -56,7 +68,7 @@ all: $(APP).hex
 # Link
 ifeq ($(filter rtos rtos_q rtos_sem rtos_metrics shell,$(APP)),$(APP))
 $(APP).elf: $(BOOT_OBJ) $(DRIVER_OBJ) apps/$(APP).o $(FREERTOS_C_OBJ) $(FREERTOS_ASM_OBJ)
-	$(CC) $(CFLAGS) -T boot/linker_rtos.ld -nostdlib -o $@ $^
+	$(CC) $(CFLAGS) -no-pie -T boot/linker_rtos.ld -nostdlib -o $@ $^
 else
 $(APP).elf: $(BOOT_OBJ) $(DRIVER_OBJ) apps/$(APP).o
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^

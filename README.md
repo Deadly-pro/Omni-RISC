@@ -27,6 +27,16 @@ You can type into a FreeRTOS shell running on the RV32IM core, inside the Verila
 ./scripts/console.sh         # live terminal: raw-mode, type like minicom (Ctrl-C quits)
 ```
 
+From a fresh clone, `scripts/setup_demo.sh` does the whole dance — checks the required packages, builds the shell firmware and the testbench, runs the scripted gate, then drops you into the live console:
+
+```bash
+./scripts/setup_demo.sh          # check deps -> build -> gate -> live console
+./scripts/setup_demo.sh --check  # dependency check only (exit 1 if a package is missing)
+./scripts/setup_demo.sh --no-run # build + gate, no interactive shell (CI-friendly)
+```
+
+> **Packages you may not have:** the demo needs `verilator` ≥ 5.0 and the RISC-V cross toolchain (`riscv64-linux-gnu-gcc` + binutils). `setup_demo.sh` names the exact package when one is missing — on Arch/CachyOS: `sudo pacman -S verilator riscv64-linux-gnu-gcc`. The firmware images (`shell.hex`, `gpu_demo.hex`) are gitignored build artifacts, so a fresh clone has to build them before `console.sh` can run.
+
 **Shell commands** (`help` lists them all):
 
 | Command | What it does |
@@ -188,11 +198,18 @@ make impl
 
 ## Requirements
 
-- Verilator >= 5.0
-- riscv64-linux-gnu-gcc (rv32 multilib)
-- GTKWave (waveforms)
-- Vivado 2026.1 (synthesis/implementation; override path with `make VIVADO=...`)
-- Python 3 (`pip install -r requirements.txt`)
+| Package | Needed for | Arch/CachyOS |
+|---------|------------|--------------|
+| Verilator ≥ 5.0 | every testbench (`make sim`, `run_sim.sh`) | `verilator` |
+| `riscv64-linux-gnu-gcc` (rv32 multilib, + binutils) | firmware and spinlock images | `riscv64-linux-gnu-gcc` |
+| Python 3 | `elf_to_hex.py`, `gpu_asm.py`, `tests/test_gpu_kernels.py` | `python` |
+| `numpy`, `pyelftools` | `tests/test_gpu_kernels.py`, `scripts/elf_to_hex.py` | `python-numpy`, `python-pyelftools` |
+| GTKWave | `run_sim.sh --wave` only | `gtkwave` |
+| asciinema | replaying `docs/shell_session.cast` only | `asciinema` |
+| Pillow | regenerating `docs/shell_demo.gif` only | `python-pillow` |
+| Vivado 2026.1 | `make synth` / `make impl` only | `/tools/2026.1/Vivado/bin/vivado`, override with `make VIVADO=...` |
+
+`./scripts/setup_demo.sh --check` verifies the demo set for you. Override the toolchain prefix with `make PREFIX=...` or `TOOLCHAIN_PREFIX=... ./scripts/setup_demo.sh`.
 
 ## Where to look for details
 

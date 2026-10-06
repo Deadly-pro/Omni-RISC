@@ -20,6 +20,18 @@ MEMORY
     DMEM (rw)  : ORIGIN = 0x00010000, LENGTH = 192K
 }
 
+/* Explicit program headers. Without PHDRS, ld synthesises a PT_PHDR segment
+ * for the ELF headers and binutils 2.47 (CachyOS) rejects the link with
+ * "PHDR segment not covered by LOAD segment" (the older toolchain warned).
+ * Naming the two segments here keeps the flat image identical: objcopy -O
+ * binary still starts at _start (vaddr 0) with the data region at 0x10000.
+ */
+PHDRS
+{
+    text PT_LOAD;
+    data PT_LOAD;
+}
+
 SECTIONS
 {
     /* Code + read-only data in the instruction region */
@@ -27,12 +39,12 @@ SECTIONS
         *(.text.startup)
         *(.text.trap)
         *(.text*)
-    } > IMEM
+    } > IMEM :text
 
     .rodata : {
         *(.rodata*)
         *(.srodata*)
-    } > IMEM
+    } > IMEM :text
 
     /* Initialized data + uninitialized data + heap in the data region */
     .data : {
@@ -40,7 +52,7 @@ SECTIONS
         *(.data*)
         *(.sdata*)
         _data_end = .;
-    } > DMEM
+    } > DMEM :data
 
     .bss (NOLOAD) : {
         _bss_start = .;
@@ -48,7 +60,7 @@ SECTIONS
         *(.sbss*)
         *(COMMON)
         _bss_end = .;
-    } > DMEM
+    } > DMEM :data
 
     /* Heap up to the top of the data window; stack grows down from top */
     _heap_start = _bss_end;

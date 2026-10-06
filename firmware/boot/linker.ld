@@ -13,6 +13,17 @@ MEMORY
     RAM (rwx) : ORIGIN = 0x00000000, LENGTH = 64K
 }
 
+/* One flat loadable image. PHDRS is load-bearing, not cosmetic: without it ld
+ * synthesises a PT_PHDR segment for the ELF headers, and binutils 2.47
+ * (CachyOS) rejects the result with "PHDR segment not covered by LOAD segment";
+ * the older toolchain only warned. Declaring the segment explicitly keeps the
+ * image identical — objcopy -O binary still starts at _start, which is vaddr 0.
+ */
+PHDRS
+{
+    image PT_LOAD;
+}
+
 SECTIONS
 {
     /* Code */
@@ -20,13 +31,13 @@ SECTIONS
         *(.text.startup)    /* _start and early boot */
         *(.text.trap)       /* trap handler */
         *(.text*)           /* all other code */
-    } > RAM
+    } > RAM :image
 
     /* Read-only data */
     .rodata : {
         *(.rodata*)
         *(.srodata*)
-    } > RAM
+    } > RAM :image
 
     /* Initialized data */
     .data : {
@@ -34,7 +45,7 @@ SECTIONS
         *(.data*)
         *(.sdata*)
         _data_end = .;
-    } > RAM
+    } > RAM :image
 
     /* Uninitialized data (zeroed by boot code) */
     .bss (NOLOAD) : {
@@ -43,7 +54,7 @@ SECTIONS
         *(.sbss*)
         *(COMMON)
         _bss_end = .;
-    } > RAM
+    } > RAM :image
 
     /* Stack at top of memory (grows down; first access is below 64K) */
     _stack_top = ORIGIN(RAM) + LENGTH(RAM);
