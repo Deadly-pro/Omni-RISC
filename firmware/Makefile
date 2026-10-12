@@ -62,11 +62,11 @@ apps/rtos.o apps/rtos_q.o apps/rtos_sem.o apps/rtos_metrics.o apps/shell.o: CFLA
 # builtins enabled or you end up testing the compiler's code, not yours.
 $(LIB_OBJ): CFLAGS += -fno-builtin
 
-# The gate app's scaffolding loops are exactly the shapes gcc likes to rewrite
-# into memcpy/memset/memcmp/strlen calls. If that happened the test would be
-# setting up and checking its own buffers *through the code under test*, so the
-# gate app is compiled without builtins too.
-apps/libc_test.o: CFLAGS += -fno-builtin
+# Gate apps build without builtins, for two reasons: their scaffolding loops are
+# exactly the shapes gcc rewrites into memcpy/memset/memcmp/strlen calls, and gcc
+# will happily fold snprintf(buf, n, "literal", ...) into an inline copy. Either
+# way the gate would be exercising the compiler instead of the code under test.
+apps/%_test.o: CFLAGS += -fno-builtin
 
 $(FREERTOS_ASM_OBJ): FREERTOS_ASM_FLAGS := -march=rv32im_zicsr_zifencei -mabi=ilp32 -c -fno-pie -I$(FREERTOS_PORT) -I$(FREERTOS_EXT)
 

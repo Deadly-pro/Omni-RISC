@@ -7,7 +7,7 @@ where the firmware-track phases put their work:
 | Phase | File | Interface | Gate |
 |---|---|---|---|
 | F1 | `omni_string.c` | `include/omni/string.h` | `tests/test_libc.sh`, `tests/test_convert.sh` |
-| F2 | `omni_printf.c` | `include/omni/stdio.h` (to come) | `tests/test_printf.sh` |
+| F2 | `omni_printf.c` | `include/omni/stdio.h` | `tests/test_printf.sh` |
 | F5 | `omni_alloc.c` | `include/omni/alloc.h` (to come) | `tests/test_alloc.sh` |
 
 New interface headers go in `../include/omni/` so apps can `#include <omni/...>`.
