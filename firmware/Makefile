@@ -16,16 +16,26 @@ OBJDUMP := $(PREFIX)objdump
 # gp/GOT assumptions that nothing initialises, so the image boots, prints the
 # banner and then corrupts itself (observed: endless reboot loop). Non-PIC
 # codegen boots and runs the whole shell session.
-CFLAGS  := -march=rv32im_zicsr_zifencei -mabi=ilp32 -Os -Wall -ffreestanding -nostdlib -MMD -MP -fno-pie
+CFLAGS  := -march=rv32im_zicsr_zifencei -mabi=ilp32 -Os -Wall -ffreestanding -nostdlib -MMD -MP -fno-pie -Iinclude
+# Gate-supplied defines, e.g. run_app.sh APP_DEFS=-DWITH_CONV (firmware track).
+CFLAGS  += $(APP_DEFS)
 LDFLAGS := -T boot/linker.ld -nostdlib -no-pie
 
 BOOT_SRCS   := boot/startup.S boot/trap_handler.S boot/boot.c
 DRIVER_SRCS := drivers/uart.c drivers/timer.c drivers/gpio.c drivers/gpu.c
 
+# Firmware-track library: every .c in lib/ is compiled and linked into the
+# NON-RTOS apps (the firmware-track gates and the bare-metal demos). The RTOS
+# apps (rtos*, shell) link rtos/omni_libc.c instead, so a lib/ implementation of
+# memcpy/strlen/... is deliberately not pulled in there - wire it explicitly
+# (and drop the duplicate from omni_libc.c) when you want it on the RTOS path.
+LIB_SRCS    := $(wildcard lib/*.c)
+LIB_OBJ     := $(LIB_SRCS:.c=.o)
+
 BOOT_OBJ    := $(BOOT_SRCS:.c=.o)
 BOOT_OBJ    := $(BOOT_OBJ:.S=.o)
 DRIVER_OBJ  := $(DRIVER_SRCS:.c=.o)
-DEPS        := $(BOOT_OBJ:.o=.d) $(DRIVER_OBJ:.o=.d)
+DEPS        := $(BOOT_OBJ:.o=.d) $(DRIVER_OBJ:.o=.d) $(LIB_OBJ:.o=.d)
 
 # --- FreeRTOS (APP=rtos / rtos_q) ------------------------------------------
 FREERTOS_ROOT  := third_party/FreeRTOS
@@ -46,6 +56,17 @@ FREERTOS_INC   := -I$(FREERTOS_ROOT)/include -I$(FREERTOS_PORT) -Irtos -Irtos/in
 
 $(FREERTOS_C_OBJ): CFLAGS += $(FREERTOS_INC) -fno-builtin
 apps/rtos.o apps/rtos_q.o apps/rtos_sem.o apps/rtos_metrics.o apps/shell.o: CFLAGS += $(FREERTOS_INC)
+
+# The firmware-track library implements exactly the functions gcc likes to
+# pattern-match (memcpy/strlen/strcmp/...), so it must never be compiled with
+# builtins enabled or you end up testing the compiler's code, not yours.
+$(LIB_OBJ): CFLAGS += -fno-builtin
+
+# The gate app's scaffolding loops are exactly the shapes gcc likes to rewrite
+# into memcpy/memset/memcmp/strlen calls. If that happened the test would be
+# setting up and checking its own buffers *through the code under test*, so the
+# gate app is compiled without builtins too.
+apps/libc_test.o: CFLAGS += -fno-builtin
 
 $(FREERTOS_ASM_OBJ): FREERTOS_ASM_FLAGS := -march=rv32im_zicsr_zifencei -mabi=ilp32 -c -fno-pie -I$(FREERTOS_PORT) -I$(FREERTOS_EXT)
 
@@ -70,7 +91,7 @@ ifeq ($(filter rtos rtos_q rtos_sem rtos_metrics shell,$(APP)),$(APP))
 $(APP).elf: $(BOOT_OBJ) $(DRIVER_OBJ) apps/$(APP).o $(FREERTOS_C_OBJ) $(FREERTOS_ASM_OBJ)
 	$(CC) $(CFLAGS) -no-pie -T boot/linker_rtos.ld -nostdlib -o $@ $^
 else
-$(APP).elf: $(BOOT_OBJ) $(DRIVER_OBJ) apps/$(APP).o
+$(APP).elf: $(BOOT_OBJ) $(DRIVER_OBJ) apps/$(APP).o $(LIB_OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 endif
 
