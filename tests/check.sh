@@ -56,6 +56,18 @@ check_absent() {
 check_pass() {
     if [ "$CHECK_FAILED" -ne 0 ]; then
         printf '%s: FAILED (%s of %s checks)\n' "$CHECK_NAME" "$CHECK_FAILED" "$CHECK_TOTAL"
+        # Surface WHY: the transcript file is deleted on exit, so this is the
+        # only chance to show what the firmware actually reported.
+        if grep -qE '^\[TEST\] ' "$CHECK_LOG"; then
+            printf -- '--- firmware reported:\n'
+            grep -E '^\[TEST\].*FAIL' "$CHECK_LOG" | head -20
+            grep -E '^\[TEST\] SUMMARY' "$CHECK_LOG" | tail -1
+            printf -- '---\n'
+        else
+            printf -- '--- no [TEST] output at all; tail of the log (build errors live here):\n'
+            tail -15 "$CHECK_LOG"
+            printf -- '---\n'
+        fi
         printf 'transcript: %s\n' "$CHECK_LOG"
         return 1
     fi
