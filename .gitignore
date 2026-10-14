@@ -17,6 +17,7 @@ firmware/apps/printf_expected.h
 firmware/apps/gpu_kernel_words.h
 firmware/apps/gpu_mlp_kernels.h
 firmware/apps/gpu_mem_kernel.h
+firmware/apps/gpu_mlp_mem_kernels.h
 tests/generated/
 
 # Vivado

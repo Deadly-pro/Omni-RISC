@@ -82,8 +82,11 @@ jobs:
         run: |
           set -u
           rc=0
+          # test_mlp_mem.sh is deliberately absent: it is the M3 work in progress
+          # (unified-memory MLP) and currently fails. See its header.
           for g in test_libc test_convert test_printf test_uart test_framing \
-                   test_alloc test_fault test_timers test_gpu_loader test_bench test_mlp; do
+                   test_alloc test_fault test_timers test_gpu_loader test_bench \
+                   test_mlp test_gpu_mem; do
             echo "::group::$g"
             if ./tests/$g.sh; then
               echo "::notice::$g passed"
