@@ -238,6 +238,12 @@ module gpu_top #(
 
     reg         g_busy, g_done, g_is_load;
     reg  [31:0] g_rdata;
+    // The completion belongs to ONE warp: four warps run the same kernel and can
+    // present the same global instruction, so without this tag warp B can be
+    // accepted on warp A's completion (taking A's data, and in the worst case
+    // leaving a warp stuck with no transaction of its own to complete - which is
+    // how the launch sweep produced an intermittent timeout).
+    reg  [1:0]  g_done_warp;
     // The request must be HELD, not recomputed: the transaction outlives the
     // cycle that issued it, and by then the decode/issue stage belongs to another
     // warp - taking the address combinationally off g_addr[] gave the store
@@ -248,12 +254,13 @@ module gpu_top #(
     always @(posedge clk) begin
         if (reset) begin
             g_busy <= 1'b0; g_done <= 1'b0; g_is_load <= 1'b0; g_rdata <= 32'b0;
-            g_addr_l <= 32'b0; g_wdata_l <= 32'b0;
+            g_done_warp <= 2'b0; g_addr_l <= 32'b0; g_wdata_l <= 32'b0;
         end else begin
             if (g_start) begin
                 g_busy    <= 1'b1;
                 g_is_load <= dec_is_gld;
                 g_done    <= 1'b0;   // never let a stale flag accept the next one
+                g_done_warp <= issue_warp_id;
                 g_addr_l  <= mem_base + g_sel_addr;
                 g_wdata_l <= rs2_data[issue_warp_id][31:0];
             end
@@ -267,7 +274,11 @@ module gpu_top #(
         end
     end
 
-    assign issue_ready   = is_global ? g_done : 1'b1;
+    // Only the warp whose transaction completed may be accepted; every other warp
+    // waits (issue_ready low), which also keeps the master single-outstanding.
+    wire g_done_here = g_done & (g_done_warp == issue_warp_id);
+
+    assign issue_ready   = is_global ? g_done_here : 1'b1;
     assign mem_addr      = g_addr_l;                        // latched at g_start
     assign mem_wdata     = g_wdata_l;                       // latched, uniform: lane 0's
     assign mem_wen       = (g_busy & ~g_is_load) ? 4'hF : 4'b0;
