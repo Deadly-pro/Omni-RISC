@@ -11,6 +11,8 @@ A **RISC-V Accelerated Processing Unit** — an RV32IM scalar CPU fused with a S
 - **RV32IM CPU** — 5-stage in-order pipeline (IF/ID/EX/MEM/WB), full forwarding + hazard detection, M-extension (`mul`/`div`), M-mode CSRs + traps
 - **Coherent 2-core research rig** — snooping MSI D-cache (write-through, write-invalidate), LR/SC spinlock, passed MP + SB litmus tests
 - **SIMT GPU** — 4 warps × 4 lanes, 16-bit SIMT ISA, warp scheduler with latency hiding, scratchpad, vector/matmul/conv kernels, warp-level `BARRIER` sync
+- **Firmware grown gate by gate** — a hand-written bare-metal layer on this SoC: string/memory, `printf`, a coalescing allocator, M-mode fault diagnostics, a software timer service, a UART receive path with a CRC-framed line protocol, and a runtime GPU kernel loader. Sixteen gates, all green (`./scripts/evidence.sh`)
+- **Unified memory — and its measured cost** — GPU kernels read and write the CPU's own `data_bram` through a bus master and two new opcodes, with no staging window in between. It is **2.4× slower** than the MMIO window it replaces, and the reason and the three fixes are in `RESULTS.md`: a project that only reports wins is not measuring
 - **SoC** — UART, timer/CLINT, GPIO, pbus MMIO decode, bare-metal firmware + scheduler
 - **FreeRTOS** — V10.5.1 preemptive RTOS on the core (M-mode CLINT port): measured 1.84 µs ISR latency, 9.84 µs context switch, interactive UART shell
 - **Fits on the board** — synthesis + place-and-route on XC7A100T (Vivado 2026.1, run 2026-08-20): **7,516 LUTs (11.9%), 1,580 LUT-as-memory, 2,410 FF, 64.5 BRAM tiles, 15 DSP; WNS +0.685 ns at 50 MHz → Fmax ≈ 51.8 MHz** (the synthesis-only run reported 7,669 LUTs, WNS +3.348 ns). These are the last numbers measured with a real data-dependent kernel; they **predate the runtime GPU kernel loader**, which has not been re-synthesised because there is no Vivado on the current development machine.
@@ -77,7 +79,7 @@ Full hardware/software architecture: [`docs/architecture.md`](docs/architecture.
 | CPU pipeline | tb_cpu_top 83/83 |
 | L1 caches | tb_cache 14/14, tb_icache 27/27 |
 | MSI coherence | tb_dual_spin (counter → 1000, no lost updates), litmus MP + SB 200/200 each |
-| GPU kernels | tb_gpu_top_kernels 118/118 (vector_add, relu, matmul, conv2d, barrier) |
+| GPU kernels | tb_gpu_top_kernels (vector_add, relu, matmul, conv2d, barrier). **Not re-run on this machine — it needs numpy, which is absent** — and our own notes disagree on the check count (66 vs 118), so no number is quoted here. Coverage is real; the count is unverified. |
 | GPU barrier | 4-warp sync: every warp writes PRE, barriers, resumes, writes POST — no deadlock, all markers present; lone-warp no-deadlock diag |
 | SoC end-to-end | tb_soc_gpu: CPU writes A/B into GPU scratchpad, launches vector-add kernel over pbus, reads C back — `C = A + B` per lane |
 | FreeRTOS | tb_soc_rtos: real preemptive RTOS (V10.5.1, M-mode port) — two tasks preempt correctly, tick timing cycle-accurate |
@@ -87,7 +89,9 @@ Full hardware/software architecture: [`docs/architecture.md`](docs/architecture.
 | Bare-metal firmware track | F1–F8 gates, all green: string/memory 130/130, conversions 260/260, printf 93/93 + two streams byte-identical to glibc, UART RX burst 4/4 and line+timeout 5/5, CRC framing 10/10 against a receiver simulator, allocator 12/12 with a 2000-operation soak, fault handler 4/4 kinds, timers 13/13, runtime kernel loader 5/5 in both the pushed and not-pushed cases |
 | Characterization | `tests/test_bench.sh` — cycles per unit of work for 7 CPU workloads read from the core's own `mcycle`, cross-checked against the CLINT's independent `mtime` (they agree to 0.03%) |
 | GPU workload | `tests/test_mlp.sh` — a 2-layer MLP over 4 samples in parallel, with the GPU's kernel image reloaded four times mid-computation, and the GPU answer checked per lane against a scalar reference |
-| Continuous integration | `.github/workflows/gates.yml` — the RTL testbenches and all eleven firmware gates on every push |
+| GPU unified memory | `tests/test_gpu_mem.sh` — a kernel adds and stores back into the CPU's own C array, both directions verified; `tests/test_mlp_mem.sh` — the same MLP with no staging window at all |
+| Pipeline cost | `tests/test_cpi.sh` — 1.12 CPI straight-line, 2.00 on a taken-branch loop; `tests/test_launch_sweep.sh` — separates a launch's fixed cost from its per-instruction cost |
+| Continuous integration | `.github/workflows/gates.yml` — the RTL testbenches and all sixteen firmware gates on every push |
 
 ## What was measured, and what was not
 
@@ -115,8 +119,10 @@ A few of them are worth reading:
 | GPU launch → completion interrupt | **306 cycles** (against 7 cycles for the same 16 additions done scalar — 43.7×) |
 | a 4-sample 2-layer MLP, kernel reloaded per layer | **6,278 GPU cycles vs 233 scalar cycles** |
 | the same MLP over shared memory (unified, no staging) | **15,125 cycles — 2.4× worse**, ~40 cycles per global access |
+| **CPI**, straight-line / taken-branch loop | **1.12 / 2.00** — the cost of having no branch predictor |
+| **what a launch costs**, fixed and marginal | **190 cycles + ~4 per kernel instruction** (n=4 → 197, n=64 → 450) |
 
-That last row is the honest headline rather than a flattering one: at this size the GPU is
+The MLP rows are the honest headline rather than a flattering one: at this size the GPU is
 **26.9× more expensive** than the CPU doing the same arithmetic, because each launch costs
 ~306 cycles of MMIO, trap and interrupt latency to buy ~29 integer multiply-accumulates. The
 dispatch path is the design's real constraint, and the number above is how you would measure
@@ -131,10 +137,20 @@ where a scratchpad access costs one cycle. Cost moved from the CPU's staging loo
 GPU's access path. The fixes — poll only a peripheral while waiting, give the GPU priority
 during a kernel, allow per-lane addresses — are identified and unbuilt.
 
-CPI is deliberately absent. `minstret` exists as a readable CSR, but the core has no
-instruction-retired signal to count it from, so any CPI published today would be a guess.
-`mcycle` was not counting at all until this work: the characterization harness found it
-declared, readable, writable and silent, and fixed it.
+**CPI, measured where the instruction count is exact.** Straight-line code runs at **1.12
+CPI** (72 cycles / 64 instructions) and a taken-branch loop at **2.00** — which is what the
+absence of a branch predictor costs, measured rather than asserted (`tests/test_cpi.sh`). The
+CSR route stays unusable: `minstret` is readable but the pipeline has no instruction-retired
+signal to count it from, and plumbing one correctly means a valid bit through all four
+pipeline registers — which is exactly the hold/flush timing that has already produced two
+bugs here — so CPI comes from loops whose length is known by construction instead. (`mcycle`
+was not counting at all until the characterization work found it declared, readable,
+writable and silent.)
+
+**One open bug, recorded rather than hidden.** A launch of a pure-ALU kernel intermittently
+never signals completion. Those kernels contain no `LDG`/`STG`, so it is the GPU completion
+path, not the new memory path; `tests/test_launch_sweep.sh` prints the same kernel twice so
+the flakiness is visible in its own output instead of being averaged away.
 
 ## How the testbenches work
 
@@ -210,7 +226,7 @@ python3 scripts/gpu_asm.py firmware/gpu_kernels/my_kernel.S
 # -> firmware/gpu_kernels/my_kernel.hex   ($readmemh image)
 ```
 
-The `.hex` is either **flashed into GPU IMEM at synthesis time** (the `IMEM_FILE` parameter, `gpu_demo.hex` — there is no runtime code download yet) or **loaded directly by a testbench** (e.g. `tb_gpu_top_kernels` calls `HEX("vector_add", 0x000)`). Reference vectors for the RTL TBs are generated by `tests/test_gpu_kernels.py`.
+The `.hex` is **flashed into GPU IMEM at synthesis time** (the `IMEM_FILE` parameter, `gpu_demo.hex`), **pushed in at run time** through the load port (`GPU_IMEM_ADDR`/`GPU_IMEM_DATA` — see F8 in `docs/plan_firmware_track.md`, so a kernel image can change mid-computation), or **loaded directly by a testbench** (e.g. `tb_gpu_top_kernels` calls `HEX("vector_add", 0x000)`). Reference vectors for the RTL TBs are generated by `tests/test_gpu_kernels.py`.
 
 The `BARRIER` opcode parks a warp in a WAIT state until every active warp has issued its own `BARRIER`, then releases them together (a lone warp passes immediately; a warp that never reaches the barrier deadlocks the group — undefined behavior, same as CUDA). See [`docs/gpu_design.md`](docs/gpu_design.md) for the microarchitecture.
 
@@ -221,7 +237,7 @@ hardware/rtl/cpu/     — RISC-V CPU core (5-stage pipeline, caches, CSRs, 2-cor
 hardware/rtl/gpu/     — SIMT GPU (warp scheduler, exec lanes, scratchpad, BARRIER)
 hardware/rtl/memory/  — instruction/data BRAM
 hardware/rtl/soc/     — UART, CLINT timer, GPIO, SoC integration (soc_top, dual_core_top)
-hardware/rtl/bus/     — pbus_arbiter (2-core arbitration)
+hardware/rtl/bus/     — pbus_arbiter (2-core peripheral arbitration), mem_arbiter (CPU + GPU against the shared data memory)
 hardware/sim/         — Verilator testbenches + run_sim.sh driver
 firmware/             — bare-metal RISC-V firmware (boot, drivers, apps, GPU kernels)
 scripts/              — elf_to_hex.py, gpu_asm.py (16-bit SIMT assembler)
