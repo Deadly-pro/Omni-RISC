@@ -32,6 +32,11 @@ DRIVER_SRCS := drivers/uart.c drivers/uart_rx.c drivers/timer.c drivers/gpio.c d
 LIB_SRCS    := $(wildcard lib/*.c)
 LIB_OBJ     := $(LIB_SRCS:.c=.o)
 
+# Protocol sources for the firmware-track apps (same idea as lib/: auto-globbed
+# into the non-RTOS link).
+NET_SRCS    := $(wildcard net/*.c)
+NET_OBJ     := $(NET_SRCS:.c=.o)
+
 # The RTOS apps link the formatting engine explicitly rather than all of lib/,
 # because rtos/omni_libc.c already provides the F1 functions on that path (a
 # second memcpy/strlen there would be a duplicate symbol).
@@ -40,7 +45,7 @@ RTOS_LIB_OBJ := lib/omni_printf.o
 BOOT_OBJ    := $(BOOT_SRCS:.c=.o)
 BOOT_OBJ    := $(BOOT_OBJ:.S=.o)
 DRIVER_OBJ  := $(DRIVER_SRCS:.c=.o)
-DEPS        := $(BOOT_OBJ:.o=.d) $(DRIVER_OBJ:.o=.d) $(LIB_OBJ:.o=.d)
+DEPS        := $(BOOT_OBJ:.o=.d) $(DRIVER_OBJ:.o=.d) $(LIB_OBJ:.o=.d) $(NET_OBJ:.o=.d)
 
 # --- FreeRTOS (APP=rtos / rtos_q) ------------------------------------------
 FREERTOS_ROOT  := third_party/FreeRTOS
@@ -66,6 +71,7 @@ apps/rtos.o apps/rtos_q.o apps/rtos_sem.o apps/rtos_metrics.o apps/shell.o: CFLA
 # pattern-match (memcpy/strlen/strcmp/...), so it must never be compiled with
 # builtins enabled or you end up testing the compiler's code, not yours.
 $(LIB_OBJ): CFLAGS += -fno-builtin
+$(NET_OBJ): CFLAGS += -fno-builtin
 
 # Gate apps build without builtins, for two reasons: their scaffolding loops are
 # exactly the shapes gcc rewrites into memcpy/memset/memcmp/strlen calls, and gcc
@@ -96,7 +102,7 @@ ifeq ($(filter rtos rtos_q rtos_sem rtos_metrics shell,$(APP)),$(APP))
 $(APP).elf: $(BOOT_OBJ) $(DRIVER_OBJ) apps/$(APP).o $(FREERTOS_C_OBJ) $(FREERTOS_ASM_OBJ) $(RTOS_LIB_OBJ)
 	$(CC) $(CFLAGS) -no-pie -T boot/linker_rtos.ld -nostdlib -o $@ $^
 else
-$(APP).elf: $(BOOT_OBJ) $(DRIVER_OBJ) apps/$(APP).o $(LIB_OBJ)
+$(APP).elf: $(BOOT_OBJ) $(DRIVER_OBJ) apps/$(APP).o $(LIB_OBJ) $(NET_OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 endif
 

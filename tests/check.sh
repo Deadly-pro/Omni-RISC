@@ -24,7 +24,7 @@ check_init() {
 # check_has <eregex> <label> — pattern must appear at least once
 check_has() {
     CHECK_TOTAL=$((CHECK_TOTAL + 1))
-    if grep -Eq "$1" "$CHECK_LOG"; then printf 'ok    %s\n' "$2"
+    if grep -aqE "$1" "$CHECK_LOG"; then printf 'ok    %s\n' "$2"
     else printf 'FAIL  %s\n' "$2"; CHECK_FAILED=$((CHECK_FAILED + 1)); fi
 }
 
@@ -32,7 +32,7 @@ check_has() {
 check_count() {
     CHECK_TOTAL=$((CHECK_TOTAL + 1))
     local n
-    n=$(grep -cE "$1" "$CHECK_LOG" || true)
+    n=$(grep -acE "$1" "$CHECK_LOG" || true)
     if [ "$n" -eq "$2" ]; then printf 'ok    %s\n' "$3"
     else
         printf 'FAIL  %s (saw %s, want %s)\n' "$3" "$n" "$2"
@@ -43,7 +43,7 @@ check_count() {
 # check_absent <eregex> <label> — pattern must NOT appear
 check_absent() {
     CHECK_TOTAL=$((CHECK_TOTAL + 1))
-    if grep -Eq "$1" "$CHECK_LOG"; then
+    if grep -aqE "$1" "$CHECK_LOG"; then
         printf 'FAIL  %s\n' "$2"
         printf '        offending lines:\n'
         grep -E "$1" "$CHECK_LOG" | head -5 | sed 's/^/        /'
