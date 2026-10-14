@@ -119,6 +119,12 @@ module csr_file (
             mcycle   <= 32'b0;
             minstret <= 32'b0;
         end else begin
+            /* Free-running cycle counter. It has to be incremented here, before
+             * the write_en case below: a CSR write to mcycle must still win, and
+             * the last non-blocking assignment to a register in a block wins.
+             * (Before this existed the counters were readable but never counted.) */
+            mcycle <= mcycle + 32'b1;
+
             if (trap_taken) begin
                 mepc_o       <= trap_pc;
                 mtval        <= trap_tval;
