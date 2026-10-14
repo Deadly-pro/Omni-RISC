@@ -83,11 +83,23 @@ void fault_report(uint32_t mcause, uint32_t mepc, uint32_t mtval,
     for (;;) { }
 }
 
+/* Machine software interrupt hook. Weak so that an app which wants the
+ * completion interrupt (firmware/drivers/gpu_loader.c) can override it, while
+ * everything else links. */
+__attribute__((weak)) void omni_msi_isr(void)
+{
+}
+
 /* Called from boot/trap_handler.S with the saved frame. */
 void trap_dispatch(uint32_t mcause, uint32_t mepc, uint32_t mtval,
                    const uint32_t *frame)
 {
     if (mcause & 0x80000000u) {
+        /* Machine software interrupt: the GPU's completion (via CLINT msip). */
+        if ((mcause & 0xFFu) == 3u) {
+            omni_msi_isr();
+            return;
+        }
         /* A machine timer interrupt goes to the software timer service when it is
          * running; an app that programs the CLINT itself keeps the old path. */
         if ((mcause & 0xFFu) == 7u && tick_enabled()) {

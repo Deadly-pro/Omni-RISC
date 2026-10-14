@@ -14,6 +14,7 @@ firmware/apps/libc_vectors.h
 firmware/apps/conv_vectors.h
 firmware/apps/printf_vectors.h
 firmware/apps/printf_expected.h
+firmware/apps/gpu_kernel_words.h
 tests/generated/
 
 # Vivado

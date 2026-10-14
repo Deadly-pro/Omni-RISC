@@ -53,6 +53,11 @@ module gpu_top #(
     wire        host_wen;
     wire [127:0] host_rdata0;
 
+    // kernel load port: gpu_cmd_proc -> gpu_fetch imem
+    wire [9:0]  imem_addr;
+    wire [15:0] imem_data;
+    wire        imem_we;
+
     gpu_cmd_proc u_cmd (
         .clk(clk),
         .reset(reset),
@@ -72,7 +77,10 @@ module gpu_top #(
         .host_wbank(host_wbank),
         .host_waddr(host_waddr),
         .host_wdata(host_wdata),
-        .host_wen(host_wen)
+        .host_wen(host_wen),
+        .imem_we(imem_we),
+        .imem_addr(imem_addr),
+        .imem_data(imem_data)
     );
 
     // ---- decode ----
@@ -128,6 +136,9 @@ module gpu_top #(
     gpu_fetch #(.IMEM_FILE(IMEM_FILE)) u_fetch (
         .clk(clk),
         .reset(reset),
+        .imem_we(imem_we),
+        .imem_addr(imem_addr),
+        .imem_data(imem_data),
         .warp_id(fetch_warp_id),
         .pc(fetch_pc),
         .instr(fetch_instr),

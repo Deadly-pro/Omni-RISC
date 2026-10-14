@@ -9,6 +9,14 @@ module gpu_fetch #(
     input         clk,
     input         reset,
 
+    // Host load port: the CPU pushes kernel words in at run time through
+    // gpu_cmd_proc's IMEM_ADDR/IMEM_DATA registers, instead of the image being
+    // flashed by $readmemh at synthesis. A write-only port with no reset keeps
+    // the array RAM-inferable.
+    input         imem_we,
+    input  [9:0]  imem_addr,
+    input  [15:0] imem_data,
+
     input  [1:0]  warp_id,
     input  [31:0] pc,
     output [15:0] instr,
@@ -24,6 +32,10 @@ module gpu_fetch #(
     wire [9:0] idx = pc[10:1];  // word address (16-bit instr = 2 bytes)
     reg [15:0] instr_reg;
     reg        valid_reg;
+
+    always @(posedge clk) begin
+        if (imem_we) imem[imem_addr] <= imem_data;   // host kernel load
+    end
 
     always @(posedge clk) begin
         if (reset) begin

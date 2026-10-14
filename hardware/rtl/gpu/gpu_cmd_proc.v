@@ -31,7 +31,11 @@ module gpu_cmd_proc (
     output [1:0]  host_wbank,
     output [7:0]  host_waddr,
     output reg [31:0] host_wdata,
-    output reg        host_wen
+    output reg        host_wen,
+    // Kernel load port into gpu_fetch's imem (see the address map below).
+    output        imem_we,
+    output [9:0]  imem_addr,
+    output [15:0] imem_data
 );
 
     // Command registers (memory-mapped at 0x4000_2000)
@@ -44,10 +48,14 @@ module gpu_cmd_proc (
     // 0x4000_2018: host_win ({bank[1:0], word[7:0]} for shared-memory access)
     // 0x4000_201C: host_data (write -> scratchpad store; read -> scratchpad load)
     // 0x4000_2020: status (unlisted -> returns active_warps)
+    // 0x4000_2024: imem_addr (RW, 10-bit word index)
+    // 0x4000_2028: imem_data (W: write this 16-bit word to imem_addr, then
+    //              auto-increment the address - a memcpy loop pushes the image)
     reg [31:0] warp_pc [0:3];
     reg        launch_pending;
     reg [1:0]  launch_warp_id;
     reg [9:0]  host_win;
+    reg [9:0]  imem_addr_r;
 
     // done latch: set when active_warps goes 1->0, combinational-clear on read
     reg        gpu_done_latch;
@@ -83,26 +91,31 @@ module gpu_cmd_proc (
             host_win       <= 10'b0;
             host_wen       <= 1'b0;
             host_wdata     <= 32'b0;
+            imem_addr_r    <= 10'b0;
         end else begin
             launch_pending <= 1'b0;
             host_wen       <= 1'b0;
-            if (|pbus_wen && pbus_addr[31:5] == 27'h2000100) begin
-                case (pbus_addr[4:0])
-                    5'h00: warp_pc[0] <= pbus_wdata;
-                    5'h04: warp_pc[1] <= pbus_wdata;
-                    5'h08: warp_pc[2] <= pbus_wdata;
-                    5'h0C: warp_pc[3] <= pbus_wdata;
-                    5'h10: begin
+            // 6-bit decode (was 5): the imem registers live at +0x24/+0x28, and a
+            // 5-bit decode would alias +0x20 onto warp_pc[0].
+            if (|pbus_wen && pbus_addr[31:6] == 26'h1000080) begin
+                case (pbus_addr[5:0])
+                    6'h00: warp_pc[0] <= pbus_wdata;
+                    6'h04: warp_pc[1] <= pbus_wdata;
+                    6'h08: warp_pc[2] <= pbus_wdata;
+                    6'h0C: warp_pc[3] <= pbus_wdata;
+                    6'h10: begin
                         if (pbus_wen[3]) begin
                             launch_pending <= pbus_wdata[31];  // go bit
                             launch_warp_id <= pbus_wdata[1:0]; // warp_id
                         end
                     end
-                    5'h18: host_win <= pbus_wdata[9:0];   // bank + word select
-                    5'h1C: begin
+                    6'h18: host_win <= pbus_wdata[9:0];   // bank + word select
+                    6'h1C: begin
                         host_wdata <= pbus_wdata;
                         host_wen   <= 1'b1;               // store into scratchpad
                     end
+                    6'h24: imem_addr_r <= pbus_wdata[9:0];
+                    6'h28: imem_addr_r <= imem_addr_r + 10'b1;   // auto-increment
                     default: ;
                 endcase
             end
@@ -117,6 +130,13 @@ module gpu_cmd_proc (
     assign host_raddr  = host_win[7:0];
     assign host_wbank  = host_win[9:8];
     assign host_waddr  = host_win[7:0];
+
+    // Kernel load port. imem_we is combinational off the same decode the write
+    // block uses, so a store to IMEM_DATA lands in the array on that edge.
+    assign imem_addr = imem_addr_r;
+    assign imem_data = pbus_wdata[15:0];
+    assign imem_we   = (|pbus_wen) && (pbus_addr[31:6] == 26'h1000080) &&
+                       (pbus_addr[5:0] == 6'h28);
 
     // readback
     wire [31:0] rdata_0 = warp_pc[0];
@@ -138,6 +158,7 @@ module gpu_cmd_proc (
                         (pbus_addr[5:0] == 6'h14) ? rdata_14 :
                         (pbus_addr[5:0] == 6'h18) ? rdata_18 :
                         (pbus_addr[5:0] == 6'h1C) ? rdata_1C :
+                        (pbus_addr[5:0] == 6'h24) ? {22'b0, imem_addr_r} :
                         rdata_def;
 
 endmodule
