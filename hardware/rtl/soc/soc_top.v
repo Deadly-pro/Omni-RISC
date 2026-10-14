@@ -34,10 +34,22 @@ module soc_top (
     // cache refills (documented in docs/roadmap.md), so the SoC runs the
     // cacheless CPU until that is resolved.
     wire snoop_ack_unused;
-    wire mem_if_read_ack_unused, mem_if_write_ack_unused;
-    wire [31:0] mem_if_addr_unused, mem_if_wdata_unused;
-    wire        mem_if_read_req_unused, mem_if_write_req_unused;
-    cpu_top #(.DMEM_FILE("program.hex"), .USE_CACHES(0)) u_cpu(
+
+    // ---- shared data memory (M1) -------------------------------------------
+    // data_bram used to live inside cpu_top. It now lives here so that the GPU
+    // can be a second master on it (M2): "unified memory" means the CPU's
+    // ordinary load/store address space and the GPU's kernels address the same
+    // bytes, with no MMIO window in between. The CPU is master 0 and, for now,
+    // the only one; mem_arbiter's master 1 is tied off.
+    wire [31:0] cpu_mem_addr, cpu_mem_wdata, cpu_mem_rdata;
+    wire [3:0]  cpu_mem_wen;
+    wire        cpu_mem_read_req, cpu_mem_write_req;
+    wire        cpu_mem_read_ack, cpu_mem_write_ack;
+    wire [31:0] mem_addr, mem_wdata, mem_rdata;
+    wire [3:0]  mem_wen;
+    wire [1:0]  mem_grant;
+
+    cpu_top #(.DMEM_FILE("program.hex"), .USE_CACHES(0), .SHARED_MEM(1)) u_cpu(
         .clk(clk),
         .reset(reset),
         .pbus_addr(pbus_addr),
@@ -51,14 +63,50 @@ module soc_top (
         .snoop_read(1'b0),
         .snoop_write(1'b0),
         .snoop_ack(snoop_ack_unused),
-        .mem_if_addr(mem_if_addr_unused),
-        .mem_if_rdata(32'b0),
-        .mem_if_read_req(mem_if_read_req_unused),
-        .mem_if_read_ack(mem_if_read_ack_unused),
-        .mem_if_write_req(mem_if_write_req_unused),
-        .mem_if_wdata(mem_if_wdata_unused),
-        .mem_if_write_ack(mem_if_write_ack_unused),
+        .mem_if_addr(cpu_mem_addr),
+        .mem_if_rdata(cpu_mem_rdata),
+        .mem_if_read_req(cpu_mem_read_req),
+        .mem_if_read_ack(cpu_mem_read_ack),
+        .mem_if_write_req(cpu_mem_write_req),
+        .mem_if_wdata(cpu_mem_wdata),
+        .mem_if_wen(cpu_mem_wen),
+        .mem_if_write_ack(cpu_mem_write_ack),
         .debug_pc(debug_pc)
+    );
+
+    mem_arbiter u_mem_arb(
+        .clk(clk),
+        .reset(reset),
+        .m0_addr(cpu_mem_addr),
+        .m0_wdata(cpu_mem_wdata),
+        .m0_wen(cpu_mem_wen),
+        .m0_read_req(cpu_mem_read_req),
+        .m0_read_ack(cpu_mem_read_ack),
+        .m0_write_req(cpu_mem_write_req),
+        .m0_write_ack(cpu_mem_write_ack),
+        .m0_rdata(cpu_mem_rdata),
+        // master 1 (GPU) not wired yet - it arrives in M2
+        .m1_addr(32'b0),
+        .m1_wdata(32'b0),
+        .m1_wen(4'b0),
+        .m1_read_req(1'b0),
+        .m1_read_ack(),
+        .m1_write_req(1'b0),
+        .m1_write_ack(),
+        .m1_rdata(),
+        .mem_addr(mem_addr),
+        .mem_wdata(mem_wdata),
+        .mem_wen(mem_wen),
+        .mem_rdata(mem_rdata),
+        .grant(mem_grant)
+    );
+
+    data_bram #(.MemFile("program.hex")) u_dmem(
+        .clk(clk),
+        .addr(mem_addr),
+        .wdata(mem_wdata),
+        .wen(mem_wen),
+        .rdata(mem_rdata)
     );
 
     uart u_uart(

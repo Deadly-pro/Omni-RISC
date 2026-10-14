@@ -29,6 +29,7 @@ module cpu_top #(
       input         mem_if_read_ack,
       output        mem_if_write_req,
       output [31:0] mem_if_wdata,
+      output [3:0]  mem_if_wen,
       input         mem_if_write_ack,
       // ---- debug: current fetch PC (SoC sim probes) ----
       output [31:0] debug_pc
@@ -232,6 +233,7 @@ mem_stage #(.DMEM_FILE(DMEM_FILE), .USE_CACHES(USE_CACHES), .SHARED_MEM(SHARED_M
     .mem_if_read_ack(mem_if_read_ack),
     .mem_if_write_req(mem_if_write_req),
     .mem_if_wdata(mem_if_wdata),
+    .mem_if_wen(mem_if_wen),
     .mem_if_write_ack(mem_if_write_ack)
   );
 

@@ -57,6 +57,10 @@ module mem_stage #(
       input         mem_if_read_ack,
       output        mem_if_write_req,
       output [31:0] mem_if_wdata,
+      // byte enables for the shared-memory write. The dcache's write-through is a
+      // full-word store, so the interface did not need this until the cacheless
+      // path used it - and there a byte store must not become a word store.
+      output [3:0]  mem_if_wen,
       input         mem_if_write_ack
   );
   wire [31:0] dmem_addr, dmem_wdata_cpu, dmem_rdata;
@@ -92,6 +96,12 @@ module mem_stage #(
       .wen(dbram_wen), .rdata(bram_rdata)
   );
   assign dmem_rdata = SHARED_MEM ? mem_if_rdata : bram_rdata;
+
+  // Which bytes a shared-memory write touches. Cached: the cache's write-through
+  // is a full word. Cacheless: the LSU's per-byte enables, gated to the data
+  // window exactly as dbram_wen is for the internal bram.
+  assign mem_if_wen = USE_CACHES ? (mem_if_write_req ? 4'b1111 : 4'b0)
+                                 : (data_cs ? dmem_wen : 4'b0);
 
   generate
     if (USE_CACHES) begin : g_dcache
@@ -181,12 +191,31 @@ module mem_stage #(
       end
       assign mem_hold    = (data_cs & ex_mem_mem_read) & ~dbram_hold;
       assign load_rdata  = data_cs ? dmem_rdata : pbus_rdata;
-      assign dbram_addr  = dmem_addr;
-      assign dbram_wen   = data_cs ? dmem_wen : 4'b0;
-      assign mem_if_addr      = 32'b0;
-      assign mem_if_read_req  = 1'b0;
-      assign mem_if_write_req = 1'b0;
-      assign mem_if_wdata     = 32'b0;
+
+      if (SHARED_MEM) begin : g_direct_shared
+        // The SoC owns the data memory (soc_top's data_bram, behind mem_arbiter).
+        // The access is presented on the mem_if_* ports, and the port's own
+        // registered read gives it exactly the timing the internal bram had, so
+        // `dbram_hold` above still times the one-cycle hold and this path is
+        // bit-identical to g_direct_internal from the pipeline's point of view.
+        // The acks are inputs here and deliberately unused: the cacheless path is
+        // self-timed, exactly as it was with the bram in this module.
+        assign mem_if_addr      = dmem_addr;
+        assign mem_if_wdata     = dmem_wdata_cpu;
+        assign mem_if_read_req  = data_cs & ex_mem_mem_read;
+        assign mem_if_write_req = data_cs & ex_mem_mem_write;
+        // keep the spare internal bram quiet (it stays instantiated for the
+        // tb_cpu_top/compliance peek of u_mem->u_dbram->mem)
+        assign dbram_addr = 32'b0;
+        assign dbram_wen  = 4'b0;
+      end else begin : g_direct_internal
+        assign dbram_addr = dmem_addr;
+        assign dbram_wen  = data_cs ? dmem_wen : 4'b0;
+        assign mem_if_addr      = 32'b0;
+        assign mem_if_read_req  = 1'b0;
+        assign mem_if_write_req = 1'b0;
+        assign mem_if_wdata     = 32'b0;
+      end
     end
   endgenerate
 
