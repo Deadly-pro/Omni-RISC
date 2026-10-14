@@ -91,6 +91,10 @@ Full hardware/software architecture: [`docs/architecture.md`](docs/architecture.
 
 ## What was measured, and what was not
 
+**[`RESULTS.md`](RESULTS.md) carries every claim with the command that reproduces it and what
+would falsify it, and `./scripts/evidence.sh` regenerates the lot in one run** — that
+regenerability is the substitute for a board. What follows is the short version.
+
 Everything above is **simulation**. Verilator models this RTL cycle for cycle, and the
 area/timing figures come from Vivado 2026.1 reports. **No bitstream has been built for a
 board and nothing has run on silicon** — so there is no measured Fmax, no power figure, and

@@ -59,13 +59,24 @@ jobs:
           riscv64-linux-gnu-gcc --version | head -1
 
       - name: Check the toolchain can build RV32 (the whole firmware is rv32im)
+        id: rv32
+        # This repo is developed against a cross compiler WITH rv32 multilib. Not
+        # every distro package has it. Rather than fail the run on that (the RTL
+        # job above is still meaningful), skip the firmware gates with an
+        # annotation that says exactly what is missing and what to install.
         run: |
           printf 'int f(int x){return x+1;}\n' > /tmp/rv32probe.c
-          riscv64-linux-gnu-gcc -march=rv32im_zicsr_zifencei -mabi=ilp32 \
-              -ffreestanding -nostdlib -c /tmp/rv32probe.c -o /tmp/rv32probe.o
-          echo "RV32 multilib OK"
+          if riscv64-linux-gnu-gcc -march=rv32im_zicsr_zifencei -mabi=ilp32 \
+                -ffreestanding -nostdlib -c /tmp/rv32probe.c -o /tmp/rv32probe.o 2>/dev/null; then
+            echo "rv32=yes" >> "$GITHUB_OUTPUT"
+            echo "RV32 multilib OK"
+          else
+            echo "rv32=no" >> "$GITHUB_OUTPUT"
+            echo "::warning::This runner's riscv64-linux-gnu-gcc cannot build -mabi=ilp32 (no rv32 multilib). The firmware gates are skipped; the RTL job is unaffected. On Arch/CachyOS install riscv64-linux-gnu-gcc, which does have it."
+          fi
 
       - name: Build the testbenches the gates drive
+        if: steps.rv32.outputs.rv32 == 'yes'
         # run_sim.sh builds then runs; with no firmware staged the run is a
         # no-op that exits non-zero on the cycle cap, so only the build matters.
         # test_shell.sh builds its own TB; the gates driven by run_app.sh need
@@ -79,6 +90,7 @@ jobs:
           ls -l hardware/sim/obj_dir_tb_soc_console/Vsoc_top
 
       - name: Firmware gates
+        if: steps.rv32.outputs.rv32 == 'yes'
         run: |
           set -u
           rc=0
@@ -97,4 +109,5 @@ jobs:
           exit $rc
 
       - name: Shell demo gate
+        if: steps.rv32.outputs.rv32 == 'yes'
         run: ./tests/test_shell.sh
