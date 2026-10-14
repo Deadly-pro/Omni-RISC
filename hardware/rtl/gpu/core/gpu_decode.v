@@ -31,6 +31,8 @@ module gpu_decode (
     output        is_halt,
     output        is_branch,
     output        is_barrier,   // BARRIER: warp-level sync (all lanes)
+    output        is_gld,       // LDG: global (main memory) load, warp-uniform
+    output        is_gst,       // STG: global store, warp-uniform
     output [7:0]  branch_target
 );
 
@@ -43,6 +45,7 @@ module gpu_decode (
     localparam OP_ALU2 = 4'h4;
     localparam OP_LDI  = 4'h5;
     localparam OP_BAR  = 4'h6;   // BARRIER: all active warps sync
+    localparam OP_LSU2 = 4'h7;   // LDG/STG: global memory (soc_top's data_bram)
     localparam OP_HALT = 4'hF;
 
     assign alu_op    = (opcode == OP_ALU)  ? {1'b0, instr[2:0]} :
@@ -62,8 +65,14 @@ module gpu_decode (
     assign is_halt   = (opcode == OP_HALT);
     assign is_branch = (opcode == OP_BR);
     assign is_barrier = (opcode == OP_BAR);
+    // LDG/STG mirror the scratchpad LD/ST's shape but address main memory. The
+    // lanes' addresses are required to be identical (a warp-uniform access), so
+    // one bus transaction serves all four - see gpu_lsu/gpu_top.
+    assign is_gld = (opcode == OP_LSU2) && ~instr[0];
+    assign is_gst = (opcode == OP_LSU2) &&  instr[0];
 
     assign reg_write = (opcode == OP_ALU) || (opcode == OP_ALU2) ||
-                       (opcode == OP_MUL) || (opcode == OP_LDI)  || mem_read;
+                       (opcode == OP_MUL) || (opcode == OP_LDI)  || mem_read ||
+                       is_gld;
 
 endmodule

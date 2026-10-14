@@ -4,7 +4,13 @@
 Encoding: [15:12]op [11:9]rd [8:6]rs1 [5:3]rs2 [2:0]f3
   0=ALU(f3: ADD SUB AND OR XOR SLT SLTU SLL)   4=ALU2(f3: SRL SRA MUL)
   1=LSU(bit0: 0=LD rd<-sp[rs1], 1=ST sp[rs1]<-rs2)
+  7=LSU2(bit0: 0=LDG rd<-mem[rs1], 1=STG mem[rs1]<-rs2)   warp-uniform
   2=BR(instr[7:0]=byte target)   5=LDI(rd<-signext imm9)   F=HALT
+
+LDG/STG address main memory (the SoC's data_bram) through the GPU's bus master
+port, so a kernel can work on the CPU's own arrays with no MMIO staging. rs1 is
+the full 32-bit address; the four lanes must hold the SAME address (a uniform
+access) and a loaded word is broadcast to all lanes.
 
 Usage: gpu_asm.py kernel.S [-o kernel.hex]
 Output: one 4-digit hex word per line ($readmemh / fscanf friendly).
@@ -50,6 +56,10 @@ def assemble(lines):
             w = (1 << 12) | (reg(args[0]) << 9) | (reg(args[1]) << 6)
         elif op == 'ST':
             w = (1 << 12) | (reg(args[0]) << 6) | (reg(args[1]) << 3) | 1
+        elif op == 'LDG':
+            w = (7 << 12) | (reg(args[0]) << 9) | (reg(args[1]) << 6)
+        elif op == 'STG':
+            w = (7 << 12) | (reg(args[0]) << 6) | (reg(args[1]) << 3) | 1
         elif op == 'BR':
             t = labels[args[0]] if args[0] in labels else int(args[0], 0)
             w = (2 << 12) | (t & 0xFF)

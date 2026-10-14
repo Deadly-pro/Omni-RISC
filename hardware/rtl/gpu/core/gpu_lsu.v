@@ -9,6 +9,7 @@ module gpu_lsu (
     input  [15:0]  offset,     // sign-extended immediate
     input  [127:0] store_data, // per-lane store data
     output [31:0]  addr,       // packed per-lane word addresses for scratchpad (8 bits per lane)
+    output [31:0]  g_addr,     // lane 0's full 32-bit address, for global LDG/STG
     input  [127:0] ld_data,    // loaded data (passthrough from scratchpad)
     output [127:0] ld_data_out // forwarded load data
 );
@@ -18,6 +19,11 @@ module gpu_lsu (
     wire [31:0] eff1 = base[63:32]  + off;
     wire [31:0] eff2 = base[95:64]  + off;
     wire [31:0] eff3 = base[127:96] + off;
+
+    // Global accesses are warp-uniform: all four lanes must compute the same
+    // address, so one bus transaction serves the whole warp and lane 0's address
+    // is the one presented.
+    assign g_addr = eff0;
 
     // Pack 8-bit word addresses per lane for scratchpad
     assign addr[7:0]   = eff0[7:0];

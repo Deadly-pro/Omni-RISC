@@ -37,6 +37,7 @@ module exec_lane (
     output [127:0] alu_result,
     output [31:0]  lsu_addr,
     output [127:0] ld_data_out,
+    output [31:0]  g_addr,         // lane 0's full address (global LDG/STG)
     output [127:0] rs2_out        // store data (rs2), consumed at warp level
 );
 
@@ -74,6 +75,7 @@ module exec_lane (
         .offset(lsu_offset),
         .store_data(rs2_data),
         .addr(lsu_addr),
+        .g_addr(g_addr),
         .ld_data(sp_rdata),
         .ld_data_out(ld_data_out)
     );

@@ -21,7 +21,19 @@ module gpu_top #(
 
     // status
     output [3:0]  active_warps,
-    output        gpu_done       // completion interrupt (see gpu_cmd_proc)
+    output        gpu_done,      // completion interrupt (see gpu_cmd_proc)
+
+    // ---- global memory master port (M2) ------------------------------------
+    // To soc_top's mem_arbiter: LDG/STG reach the same data_bram the CPU uses, so
+    // a kernel works on the CPU's own arrays with no MMIO staging.
+    output [31:0] mem_addr,
+    output [31:0] mem_wdata,
+    output [3:0]  mem_wen,
+    output        mem_read_req,
+    output        mem_write_req,
+    input  [31:0] mem_rdata,
+    input         mem_read_ack,
+    input         mem_write_ack
 );
 
     // ---- warp_scheduler <-> gpu_fetch ----
@@ -34,7 +46,10 @@ module gpu_top #(
     wire [1:0]  issue_warp_id;
     wire [15:0] issue_instr;
     wire        issue_valid;
-    wire        issue_ready = 1'b1;   // single-cycle lanes, always ready
+    // Lanes are single-cycle, so issue is normally always ready. A global memory
+    // access (LDG/STG) needs the bus, so acceptance of such an instruction waits
+    // for its transaction - see the g_* block below.
+    wire        issue_ready;
 
     // ---- exec completion (registered below) ----
     reg [1:0] complete_warp_id;
@@ -44,6 +59,7 @@ module gpu_top #(
     wire [31:0] cmd_warp_pc;
     wire [1:0]  cmd_warp_id;
     wire        cmd_launch;
+    wire [31:0] mem_base;      // GPU global-memory base (GPU_MEM_BASE, +0x2C)
     // shared-memory window: CPU writes kernel inputs / reads results in
     // warp0's scratchpad through gpu_cmd_proc host registers.
     wire [7:0]  host_raddr;
@@ -80,7 +96,11 @@ module gpu_top #(
         .host_wen(host_wen),
         .imem_we(imem_we),
         .imem_addr(imem_addr),
-        .imem_data(imem_data)
+        .imem_data(imem_data),
+        .mem_base(mem_base),
+        .dbg_starts(dbg_starts),
+        .dbg_state(dbg_state),
+        .dbg_last(dbg_last)
     );
 
     // ---- decode ----
@@ -88,6 +108,7 @@ module gpu_top #(
     wire [2:0]  dec_rd_addr, dec_rs1_addr, dec_rs2_addr;
     wire        dec_reg_write, dec_mem_read, dec_mem_write;
     wire        dec_is_ldi, dec_is_halt, dec_is_branch, dec_is_barrier;
+    wire        dec_is_gld, dec_is_gst;
     wire [31:0] dec_ldi_imm;
     wire [7:0]  dec_branch_target;
 
@@ -105,6 +126,8 @@ module gpu_top #(
         .is_halt(dec_is_halt),
         .is_branch(dec_is_branch),
         .is_barrier(dec_is_barrier),
+        .is_gld(dec_is_gld),
+        .is_gst(dec_is_gst),
         .branch_target(dec_branch_target)
     );
 
@@ -157,12 +180,17 @@ module gpu_top #(
     wire [31:0]  lsu_addr   [0:3];
     wire [127:0] sp_rd_unused [0:3];
     wire [127:0] host_rdata [0:3];
+    wire [31:0]  g_addr [0:3];        // per-warp lane-0 global address
 
     generate
         for (w = 0; w < 4; w = w + 1) begin : g_warp
-            wire sel = issue_valid && (issue_warp_id == w[1:0]);
-            // writeback mux: load > ldi > alu
-            wire [127:0] wb = dec_mem_read ? ld_data[w] :
+            // Acceptance, not mere presence: while a global access is in flight
+            // the lanes must not act, or a pending load writes back stale data
+            // and a store fires repeatedly.
+            wire sel = issue_valid && issue_ready && (issue_warp_id == w[1:0]);
+            // writeback mux: global load > scratchpad load > ldi > alu
+            wire [127:0] wb = dec_is_gld   ? {4{g_rdata}} :
+                              dec_mem_read ? ld_data[w] :
                               dec_is_ldi   ? {4{dec_ldi_imm}} :
                               alu_result[w];
             exec_lane u_lane (
@@ -189,12 +217,82 @@ module gpu_top #(
                 .alu_result(alu_result[w]),
                 .lsu_addr(lsu_addr[w]),
                 .ld_data_out(ld_data[w]),
+                .g_addr(g_addr[w]),
                 .rs2_out(rs2_data[w])
             );
         end
     endgenerate
 
     assign host_rdata0 = host_rdata[0];
+
+    // ---- global memory (LDG/STG): one warp-uniform word per instruction -------
+    // The transaction starts as soon as the instruction is presented, and the
+    // instruction is accepted only once its data has arrived, so the lanes'
+    // writeback lands on the acceptance cycle like every other instruction - and
+    // `sel` below is gated by issue_ready so no lane acts while the bus is busy.
+    // A store is one full word: all four lanes hold the same address and value.
+    wire        is_global  = dec_is_gld | dec_is_gst;
+    wire [31:0] g_sel_addr = g_addr[issue_warp_id];
+    wire        g_start    = issue_valid & ~g_busy & ~g_done & is_global;
+    wire        g_finish   = g_busy & (g_is_load ? mem_read_ack : mem_write_ack);
+
+    reg         g_busy, g_done, g_is_load;
+    reg  [31:0] g_rdata;
+    // The request must be HELD, not recomputed: the transaction outlives the
+    // cycle that issued it, and by then the decode/issue stage belongs to another
+    // warp - taking the address combinationally off g_addr[] gave the store
+    // whatever address that warp happened to hold (found via dbg_last: a store to
+    // base+0 instead of base+8).
+    reg  [31:0] g_addr_l, g_wdata_l;
+
+    always @(posedge clk) begin
+        if (reset) begin
+            g_busy <= 1'b0; g_done <= 1'b0; g_is_load <= 1'b0; g_rdata <= 32'b0;
+            g_addr_l <= 32'b0; g_wdata_l <= 32'b0;
+        end else begin
+            if (g_start) begin
+                g_busy    <= 1'b1;
+                g_is_load <= dec_is_gld;
+                g_done    <= 1'b0;   // never let a stale flag accept the next one
+                g_addr_l  <= mem_base + g_sel_addr;
+                g_wdata_l <= rs2_data[issue_warp_id][31:0];
+            end
+            if (g_finish) begin
+                g_busy <= 1'b0;
+                g_done <= 1'b1;
+                if (g_is_load) g_rdata <= mem_rdata;
+            end
+            // accepted: the instruction leaves the issue stage, so consume the flag
+            if (issue_valid & issue_ready & is_global) g_done <= 1'b0;
+        end
+    end
+
+    assign issue_ready   = is_global ? g_done : 1'b1;
+    assign mem_addr      = g_addr_l;                        // latched at g_start
+    assign mem_wdata     = g_wdata_l;                       // latched, uniform: lane 0's
+    assign mem_wen       = (g_busy & ~g_is_load) ? 4'hF : 4'b0;
+    assign mem_read_req  = g_busy &  g_is_load;
+    assign mem_write_req = g_busy & ~g_is_load;
+
+    // Debug visibility for the handshake (readable at GPU +0x30/+0x34 via
+    // gpu_cmd_proc). A global access that never issues and one that issues but
+    // never completes look identical from the outside otherwise.
+    reg [31:0] dbg_starts, dbg_state, dbg_last;
+    always @(posedge clk) begin
+        if (reset) begin
+            dbg_starts <= 32'b0;
+            dbg_state  <= 32'b0;
+            dbg_last   <= 32'b0;
+        end else begin
+            if (g_start) begin
+                dbg_starts <= dbg_starts + 32'b1;
+            end
+            if (g_finish)
+                dbg_last <= {g_is_load, (mem_wen != 4'b0), 2'b00, mem_addr[27:0]};
+            dbg_state  <= {27'b0, g_is_load, mem_base[0], g_busy, g_done,
+                           (mem_wen != 4'b0)};
+        end
+    end
 
     // ---- completion: 1 cycle after issue ----
     always @(posedge clk) begin

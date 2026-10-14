@@ -35,7 +35,16 @@ module gpu_cmd_proc (
     // Kernel load port into gpu_fetch's imem (see the address map below).
     output        imem_we,
     output [9:0]  imem_addr,
-    output [15:0] imem_data
+    output [15:0] imem_data,
+    // Base address for the GPU's global memory accesses (LDG/STG). The CPU points
+    // the GPU at one of its own buffers; kernels then use small offsets.
+    output [31:0] mem_base,
+    // Debug visibility for the global-memory handshake (read at +0x30/+0x34):
+    // how many transactions were started, and the live state bits. Without these
+    // a stuck LDG/STG is indistinguishable from one that silently never issued.
+    input  [31:0] dbg_starts,
+    input  [31:0] dbg_state,
+    input  [31:0] dbg_last
 );
 
     // Command registers (memory-mapped at 0x4000_2000)
@@ -51,11 +60,15 @@ module gpu_cmd_proc (
     // 0x4000_2024: imem_addr (RW, 10-bit word index)
     // 0x4000_2028: imem_data (W: write this 16-bit word to imem_addr, then
     //              auto-increment the address - a memcpy loop pushes the image)
+    // 0x4000_202C: mem_base (RW: base address for LDG/STG global accesses)
+    // 0x4000_2030: dbg_starts (RO: global transactions started)
+    // 0x4000_2034: dbg_state  (RO: {g_is_load, g_busy, g_done, mem_wen!=0})
     reg [31:0] warp_pc [0:3];
     reg        launch_pending;
     reg [1:0]  launch_warp_id;
     reg [9:0]  host_win;
     reg [9:0]  imem_addr_r;
+    reg [31:0] mem_base_r;
 
     // done latch: set when active_warps goes 1->0, combinational-clear on read
     reg        gpu_done_latch;
@@ -92,6 +105,7 @@ module gpu_cmd_proc (
             host_wen       <= 1'b0;
             host_wdata     <= 32'b0;
             imem_addr_r    <= 10'b0;
+            mem_base_r     <= 32'b0;
         end else begin
             launch_pending <= 1'b0;
             host_wen       <= 1'b0;
@@ -116,6 +130,7 @@ module gpu_cmd_proc (
                     end
                     6'h24: imem_addr_r <= pbus_wdata[9:0];
                     6'h28: imem_addr_r <= imem_addr_r + 10'b1;   // auto-increment
+                    6'h2C: mem_base_r  <= pbus_wdata;
                     default: ;
                 endcase
             end
@@ -137,6 +152,7 @@ module gpu_cmd_proc (
     assign imem_data = pbus_wdata[15:0];
     assign imem_we   = (|pbus_wen) && (pbus_addr[31:6] == 26'h1000080) &&
                        (pbus_addr[5:0] == 6'h28);
+    assign mem_base  = mem_base_r;
 
     // readback
     wire [31:0] rdata_0 = warp_pc[0];
@@ -159,6 +175,10 @@ module gpu_cmd_proc (
                         (pbus_addr[5:0] == 6'h18) ? rdata_18 :
                         (pbus_addr[5:0] == 6'h1C) ? rdata_1C :
                         (pbus_addr[5:0] == 6'h24) ? {22'b0, imem_addr_r} :
+                        (pbus_addr[5:0] == 6'h2C) ? mem_base_r :
+                        (pbus_addr[5:0] == 6'h30) ? dbg_starts :
+                        (pbus_addr[5:0] == 6'h34) ? dbg_state :
+                        (pbus_addr[5:0] == 6'h38) ? dbg_last :
                         rdata_def;
 
 endmodule

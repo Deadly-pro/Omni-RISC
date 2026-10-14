@@ -85,15 +85,15 @@ module soc_top (
         .m0_write_req(cpu_mem_write_req),
         .m0_write_ack(cpu_mem_write_ack),
         .m0_rdata(cpu_mem_rdata),
-        // master 1 (GPU) not wired yet - it arrives in M2
-        .m1_addr(32'b0),
-        .m1_wdata(32'b0),
-        .m1_wen(4'b0),
-        .m1_read_req(1'b0),
-        .m1_read_ack(),
-        .m1_write_req(1'b0),
-        .m1_write_ack(),
-        .m1_rdata(),
+        // master 1: the GPU's global-memory port (LDG/STG)
+        .m1_addr(gpu_mem_addr),
+        .m1_wdata(gpu_mem_wdata),
+        .m1_wen(gpu_mem_wen),
+        .m1_read_req(gpu_mem_read_req),
+        .m1_read_ack(gpu_mem_read_ack),
+        .m1_write_req(gpu_mem_write_req),
+        .m1_write_ack(gpu_mem_write_ack),
+        .m1_rdata(gpu_mem_rdata),
         .mem_addr(mem_addr),
         .mem_wdata(mem_wdata),
         .mem_wen(mem_wen),
@@ -149,6 +149,11 @@ module soc_top (
     // CPU dispatches via cmd regs, reads results back via the +0x14 readback.
     wire        gpu_ready_unused;
     wire [3:0]  gpu_active_unused;
+    // GPU global-memory master (LDG/STG) -> mem_arbiter master 1
+    wire [31:0] gpu_mem_addr, gpu_mem_wdata, gpu_mem_rdata;
+    wire [3:0]  gpu_mem_wen;
+    wire        gpu_mem_read_req, gpu_mem_write_req;
+    wire        gpu_mem_read_ack, gpu_mem_write_ack;
     gpu_top #(.IMEM_FILE("gpu_demo.hex")) u_gpu(
         .clk(clk),
         .reset(reset),
@@ -159,7 +164,15 @@ module soc_top (
         .pbus_rdata(gpu_rdata),
         .pbus_ready(gpu_ready_unused),
         .active_warps(gpu_active_unused),
-        .gpu_done(gpu_done)
+        .gpu_done(gpu_done),
+        .mem_addr(gpu_mem_addr),
+        .mem_wdata(gpu_mem_wdata),
+        .mem_wen(gpu_mem_wen),
+        .mem_read_req(gpu_mem_read_req),
+        .mem_write_req(gpu_mem_write_req),
+        .mem_rdata(gpu_mem_rdata),
+        .mem_read_ack(gpu_mem_read_ack),
+        .mem_write_ack(gpu_mem_write_ack)
     );
 
     // each slave drives 0 when not selected, so ORing selects the winner
