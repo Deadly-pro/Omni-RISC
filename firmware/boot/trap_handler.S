@@ -35,7 +35,10 @@ _trap_handler:
     sw   x31, 108(sp)
 
     csrr a0, mcause
-    call timer_int_handler
+    csrr a1, mepc
+    csrr a2, mtval
+    mv   a3, sp
+    call trap_dispatch
 
     lw   x1,   0(sp)
     lw   x5,   4(sp)
