@@ -22,7 +22,7 @@ CFLAGS  += $(APP_DEFS)
 LDFLAGS := -T boot/linker.ld -nostdlib -no-pie
 
 BOOT_SRCS   := boot/startup.S boot/trap_handler.S boot/boot.c
-DRIVER_SRCS := drivers/uart.c drivers/timer.c drivers/gpio.c drivers/gpu.c
+DRIVER_SRCS := drivers/uart.c drivers/uart_rx.c drivers/timer.c drivers/gpio.c drivers/gpu.c
 
 # Firmware-track library: every .c in lib/ is compiled and linked into the
 # NON-RTOS apps (the firmware-track gates and the bare-metal demos). The RTOS

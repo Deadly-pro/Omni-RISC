@@ -16,12 +16,22 @@ set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="${1:?usage: run_app.sh <app> [session-file]}"
 SESSION="${2:-}"
+# The harness runs the TB from its own obj_dir, so a relative session path would
+# stop resolving: make it absolute here.
+if [ -n "$SESSION" ]; then
+    SESSION="$(cd "$(dirname "$SESSION")" && pwd)/$(basename "$SESSION")"
+fi
 TB="soc/tb_soc_console"
 OBJ="$ROOT/hardware/sim/obj_dir_tb_soc_console"
 
 # 1) firmware — build chatter goes to STDERR: stdout belongs to the firmware's
 # UART output, and a gate that byte-diffs it must not see "make: Entering
 # directory ..." mixed in. A broken app must not fail quietly, either.
+# APP_DEFS changes the compile command but not any file timestamp, so make would
+# happily reuse an object built for a different gate mode (F3 runs the same app
+# as burst and as line). Drop it whenever defines are supplied.
+if [ -n "${APP_DEFS:-}" ]; then rm -f "$ROOT/firmware/apps/$APP.o"; fi
+
 if ! make -C "$ROOT/firmware" APP="$APP" APP_DEFS="${APP_DEFS:-}" "$APP.hex" 1>&2; then
     echo "[RUN] firmware build FAILED (APP=$APP)" >&2
     exit 2

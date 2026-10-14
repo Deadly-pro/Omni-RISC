@@ -49,6 +49,7 @@ static uint64_t MAX_CYCLES  = 50000000ULL;    // TB_MAX: 1 s of sim time
 static uint64_t QUIET_CYCLES = 3000000ULL;    // TB_QUIET: 60 ms of TX silence
 static uint64_t HEARTBEAT   = 10000000ULL;    // TB_HEARTBEAT, 0 disables
 static const char* END_MARK = "[TEST] DONE";  // TB_END_MARK
+static const char* START_MARK = "";           // TB_START_MARK: feed stdin only after this
 static bool     PACE_LINE   = false;          // TB_PACE=line
 static bool     ECHO_INPUT  = false;          // TB_ECHO=1
 
@@ -203,6 +204,7 @@ int main(int argc, char** argv) {
     if (const char* e = getenv("TB_QUIET"))      QUIET_CYCLES = strtoull(e, nullptr, 0);
     if (const char* e = getenv("TB_HEARTBEAT"))  HEARTBEAT    = strtoull(e, nullptr, 0);
     if (const char* e = getenv("TB_END_MARK"))   END_MARK     = e;
+    if (const char* e = getenv("TB_START_MARK")) START_MARK   = e;
     if (const char* e = getenv("TB_PACE"))       PACE_LINE    = !strcmp(e, "line");
     if (const char* e = getenv("TB_ECHO"))       ECHO_INPUT   = atoi(e) != 0;
     if (getenv("TB_VCD")) open_wave = true;
@@ -230,6 +232,7 @@ int main(int argc, char** argv) {
     bool     saw_mark   = false;
     bool     eof_quiet  = false;
     bool     hit_cap    = false;
+    bool     started    = (START_MARK[0] == '\0');
     uint64_t last_tx    = cyc;
     size_t   last_len   = txlog.size();
     uint64_t next_beat  = HEARTBEAT ? HEARTBEAT : ~0ULL;
@@ -257,7 +260,12 @@ int main(int argc, char** argv) {
             // no more input: end once the firmware has finished talking
             if (cyc - last_tx > QUIET_CYCLES) { eof_quiet = true; break; }
         }
-        pump_stdin();
+        /* With TB_START_MARK set, hold the input back until the firmware says it
+         * is listening - otherwise bytes are already in the 16-byte FIFO during
+         * boot and any code that touches RXDATA (uart_init clears a sticky
+         * overrun by reading it) eats one. */
+        if (!started && log_has(START_MARK)) started = true;
+        if (started) pump_stdin();
     }
     hit_cap = (cyc >= MAX_CYCLES) && !saw_mark && !eof_quiet;
 
