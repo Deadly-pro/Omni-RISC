@@ -1,0 +1,99 @@
+name: gates
+
+# Correctness you can see without reading the code: the RTL testbenches and the
+# firmware-track gates, on every push.
+#
+# Two jobs so they run in parallel - the Verilator builds are the slow part.
+#
+# PORTABILITY ASSUMPTION: this repo is developed against a cross compiler whose
+# rv32 multilib support is present (`riscv64-linux-gnu-gcc` with `-mabi=ilp32`,
+# which is what the whole firmware track uses). The firmware job checks that
+# explicitly before doing any work, so if a runner's toolchain lacks rv32 the job
+# fails with that sentence rather than with 40 confusing errors.
+#
+# Not yet exercised on GitHub's runners from the machine this was written on; the
+# commands in it are the ones verified locally (see AGENTS.md "Firmware track").
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: gates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rtl:
+    name: RTL testbenches
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Verilator
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y verilator
+          verilator --version
+
+      - name: ALU
+        run: make sim TB=cpu/tb_alu
+
+      - name: Core pipeline
+        run: make sim TB=cpu/tb_cpu_top
+
+  firmware:
+    name: Firmware track gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Verilator and the RISC-V cross toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y verilator gcc-riscv64-linux-gnu
+          verilator --version
+          riscv64-linux-gnu-gcc --version | head -1
+
+      - name: Check the toolchain can build RV32 (the whole firmware is rv32im)
+        run: |
+          printf 'int f(int x){return x+1;}\n' > /tmp/rv32probe.c
+          riscv64-linux-gnu-gcc -march=rv32im_zicsr_zifencei -mabi=ilp32 \
+              -ffreestanding -nostdlib -c /tmp/rv32probe.c -o /tmp/rv32probe.o
+          echo "RV32 multilib OK"
+
+      - name: Build the testbenches the gates drive
+        # run_sim.sh builds then runs; with no firmware staged the run is a
+        # no-op that exits non-zero on the cycle cap, so only the build matters.
+        # test_shell.sh builds its own TB; the gates driven by run_app.sh need
+        # obj_dir_tb_soc_console to exist, which is what this step creates.
+        run: |
+          for tb in soc/tb_soc_console soc/tb_soc_shell; do
+            echo "::group::build $tb"
+            timeout 900 ./hardware/sim/run_sim.sh "$tb" < /dev/null > /dev/null 2>&1 || true
+            echo "::endgroup::"
+          done
+          ls -l hardware/sim/obj_dir_tb_soc_console/Vsoc_top
+
+      - name: Firmware gates
+        run: |
+          set -u
+          rc=0
+          for g in test_libc test_convert test_printf test_uart test_framing \
+                   test_alloc test_fault test_timers test_gpu_loader test_bench test_mlp; do
+            echo "::group::$g"
+            if ./tests/$g.sh; then
+              echo "::notice::$g passed"
+            else
+              echo "::error::$g FAILED"
+              rc=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $rc
+
+      - name: Shell demo gate
+        run: ./tests/test_shell.sh
