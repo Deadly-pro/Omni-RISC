@@ -32,6 +32,11 @@ DRIVER_SRCS := drivers/uart.c drivers/timer.c drivers/gpio.c drivers/gpu.c
 LIB_SRCS    := $(wildcard lib/*.c)
 LIB_OBJ     := $(LIB_SRCS:.c=.o)
 
+# The RTOS apps link the formatting engine explicitly rather than all of lib/,
+# because rtos/omni_libc.c already provides the F1 functions on that path (a
+# second memcpy/strlen there would be a duplicate symbol).
+RTOS_LIB_OBJ := lib/omni_printf.o
+
 BOOT_OBJ    := $(BOOT_SRCS:.c=.o)
 BOOT_OBJ    := $(BOOT_OBJ:.S=.o)
 DRIVER_OBJ  := $(DRIVER_SRCS:.c=.o)
@@ -88,7 +93,7 @@ all: $(APP).hex
 
 # Link
 ifeq ($(filter rtos rtos_q rtos_sem rtos_metrics shell,$(APP)),$(APP))
-$(APP).elf: $(BOOT_OBJ) $(DRIVER_OBJ) apps/$(APP).o $(FREERTOS_C_OBJ) $(FREERTOS_ASM_OBJ)
+$(APP).elf: $(BOOT_OBJ) $(DRIVER_OBJ) apps/$(APP).o $(FREERTOS_C_OBJ) $(FREERTOS_ASM_OBJ) $(RTOS_LIB_OBJ)
 	$(CC) $(CFLAGS) -no-pie -T boot/linker_rtos.ld -nostdlib -o $@ $^
 else
 $(APP).elf: $(BOOT_OBJ) $(DRIVER_OBJ) apps/$(APP).o $(LIB_OBJ)

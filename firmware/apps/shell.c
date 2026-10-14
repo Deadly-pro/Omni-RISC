@@ -20,6 +20,7 @@
 
 #include "../drivers/uart.h"
 #include "../drivers/gpu.h"
+#include <omni/stdio.h>
 
 extern void freertos_risc_v_trap_handler(void);
 
@@ -46,14 +47,10 @@ void freertos_risc_v_application_interrupt_handler(void)
 }
 
 /* ---- number printing ------------------------------------------------- */
-static void put_dec(uint32_t v)
-{
-    char buf[12];
-    int i = 0;
-    if (v == 0) buf[i++] = '0';
-    while (v > 0) { buf[i++] = '0' + (v % 10); v /= 10; }
-    for (int j = i - 1; j >= 0; j--) uart_putc(buf[j]);
-}
+/* Formatting goes through the F2 engine (firmware/lib/omni_printf.c) now; these
+ * two keep their names and their exact output so the shell's transcripts are
+ * unchanged. */
+static void put_dec(uint32_t v)   { printf("%u", (unsigned)v); }
 
 /* ---- tick-jitter capture (ISR context via the tick hook) ------------- */
 static volatile uint32_t tj_last_lo;
@@ -203,11 +200,7 @@ static struct { const char *name; void (*fn)(void); } cmds[] = {
 };
 
 /* ---- debug-monitor commands (U-Boot md/mw genre; args are hex) -------- */
-static void put_hex32(uint32_t v)
-{
-    static const char d[] = "0123456789abcdef";
-    for (int i = 7; i >= 0; i--) uart_putc(d[(v >> (i * 4)) & 0xF]);
-}
+static void put_hex32(uint32_t v) { printf("%08x", (unsigned)v); }
 
 /* hex or decimal, optional 0x prefix; returns 1 on success */
 static int parse_num(const char *s, uint32_t *out)
