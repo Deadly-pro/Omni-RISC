@@ -3,22 +3,29 @@
 #
 #   ./tests/test_mlp_mem.sh
 #
-# STATUS: WORK IN PROGRESS - this gate currently FAILS. Do not add it to CI until
-# it passes. What it establishes today is a real measurement, not a success:
+# Same computation as tests/test_mlp.sh (y = relu(W2 . relu(W1 . x)), 4 samples,
+# 4 launches each, verified per sample against a scalar reference) but with no
+# staging window at all: the operands live in an ordinary C array and the kernels
+# reach them with LDG/STG.
 #
-#   * the computation is WRONG on all four samples (so the MLP's port to LDG/STG
-#     is not correct yet, even though tests/test_gpu_mem.sh proves the mechanism
-#     works for a simple kernel), and
-#   * it costs MORE, not less: 15125 cycles against the MMIO staging window's 6278
-#     for the same four samples.
+# It passes - and it is SLOWER, which is the result worth having:
 #
-# The likely reasons, both worth fixing before believing unified memory is a win:
-# every kernel memory access is a bus transaction that must arbitrate against a
-# CPU that is polling memory in its wait loop (mem_arbiter gives the CPU priority,
-# deliberately), and global accesses are warp-uniform so the four samples run one
-# at a time instead of four lanes at once.
+#   15125 cycles vs the MMIO staging window's 6278 for the same four samples.
 #
-# The MMIO-window version of the same workload is tests/test_mlp.sh and passes.
+# The arithmetic is not mysterious: this workload makes ~224 global accesses
+# (56 per sample: 16 LDG + 4 STG per matmul, 8 per relu), and the difference is
+# ~8847 cycles - about 40 cycles per access. Each one is a bus transaction that
+# has to arbitrate with a CPU that is polling *memory* in gpu_run_wait_irq's wait
+# loop (mem_arbiter gives the CPU priority on purpose), whereas a scratchpad
+# access costs one cycle and the MMIO window only costs the CPU two pbus stores to
+# push a word. So "unified memory" is not automatically a win: it moves the cost
+# from the CPU's staging loop into the GPU's access path.
+#
+# Concrete ways to fix that, in order of expected effect: have the wait loop poll
+# only a peripheral so it stops competing for the memory bus; give the GPU
+# priority (or exclusive ownership) while a kernel is running; and allow per-lane
+# global addresses so four SIMT lanes can work in parallel again instead of the
+# samples being serialized by the warp-uniform access rule.
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 . "$ROOT/tests/check.sh"

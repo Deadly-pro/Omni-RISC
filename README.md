@@ -110,12 +110,22 @@ A few of them are worth reading:
 | insertion sort | 41 → 173 cycles/element as n goes 32 → 64 (quadratic, as expected) |
 | GPU launch → completion interrupt | **306 cycles** (against 7 cycles for the same 16 additions done scalar — 43.7×) |
 | a 4-sample 2-layer MLP, kernel reloaded per layer | **6,278 GPU cycles vs 233 scalar cycles** |
+| the same MLP over shared memory (unified, no staging) | **15,125 cycles — 2.4× worse**, ~40 cycles per global access |
 
 That last row is the honest headline rather than a flattering one: at this size the GPU is
 **26.9× more expensive** than the CPU doing the same arithmetic, because each launch costs
 ~306 cycles of MMIO, trap and interrupt latency to buy ~29 integer multiply-accumulates. The
 dispatch path is the design's real constraint, and the number above is how you would measure
 whether a bigger kernel or batched launches ever pay it off.
+
+The row after it is the reason this project does not claim "unified memory made it faster": it
+did not. The GPU can now read and write the CPU's own arrays directly (no MMIO window, no
+staging copies — see `tests/test_gpu_mem.sh`, which passes), and the MLP ported onto that path
+is correct but **2.4× slower** than the window it replaced, because each of its ~224 global
+accesses is a bus transaction that arbitrates against a CPU polling memory in its wait loop,
+where a scratchpad access costs one cycle. Cost moved from the CPU's staging loop into the
+GPU's access path. The fixes — poll only a peripheral while waiting, give the GPU priority
+during a kernel, allow per-lane addresses — are identified and unbuilt.
 
 CPI is deliberately absent. `minstret` exists as a readable CSR, but the core has no
 instruction-retired signal to count it from, so any CPI published today would be a guess.
