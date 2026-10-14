@@ -121,6 +121,30 @@ Direct testbench invocation (more control than `make sim`):
 - Everything the demo needs *besides* packages is in git (FreeRTOS is vendored, not a submodule). All `*.hex` are gitignored → **a fresh clone has none**, so the demo cannot run before a firmware build.
 - **Verified end-to-end 2026-10-06** (CachyOS `riscv64-linux-gnu` gcc 16.2.1 / binutils 2.47): `setup_demo.sh --no-run` → firmware + tb build → `test_shell: ALL PASS` (17 checks, incl. `gpu sum=110 irq=1 PASS`). The demo also needs the two toolchain fixes recorded under *Firmware toolchain* below (`-fno-pie`/`-no-pie`, `PHDRS`) or it reboot-loops instead.
 
+## Firmware track (F1–F8)
+
+`docs/plan_firmware_track.md` is the plan; **all eight phases are implemented and green**. Each phase is an interface + a gate app + an implementation, and the gate runs the app on the SoC through `hardware/sim/soc/tb_soc_console.cpp` (the generic console TB, not `tb_soc_shell`).
+
+```bash
+./tests/test_libc.sh      # F1 memory/string (130 checks)     ./tests/test_convert.sh  # F1 conversions (260)
+./tests/test_printf.sh    # F2 vs glibc (93 vectors + 2 stream diffs)
+./tests/test_uart.sh      # F3 UART RX: burst (loss accounted) + paced line/timeout
+./tests/test_framing.sh   # F4 CRC framing vs a byte-level receiver simulator
+./tests/test_alloc.sh     # F5 allocator (12 checks, 2000-op soak, heap_check after each op)
+./tests/test_fault.sh     # F6 fault kinds (illegal / misaligned / ecall / ebreak)
+./tests/test_timers.sh    # F7 time + software timers (13 checks)
+./tests/test_gpu_loader.sh # F8 runtime kernel load: pushed vs not-pushed
+```
+
+- **Harness**: `tests/run_app.sh <app>` builds `APP`, stages the hex into the console TB's `obj_dir`, runs it, and returns its status. Env: `APP_DEFS` (per-run defines), `TB_START_MARK` (hold input until the app says ready), `TB_PACE=burst|line`, `TB_QUIET` (cycles of TX silence that mean "finished" — **raise it for a long CPU-only test**), `TB_MAX`, `TB_GPU_IMAGE=none` (don't stage a GPU image). Assertions come from `tests/check.sh` (`check_init/has/count/absent/pass`), whose greps are binary-safe; `check_pass` dumps the app's FAIL lines.
+- **Gate apps carry weak stubs** for every symbol they need (strong definitions in `firmware/lib`, `firmware/drivers`, `firmware/net` override them), so a gate runs, prints per-case diagnostics, and fails informatively before the code exists.
+- **Gate apps build with `-fno-builtin`** (`apps/%_test.o` in the Makefile) — otherwise gcc folds their scaffolding into `memcpy`/`strlen` or folds `snprintf(buf, n, "literal")` into a copy, and the gate tests the compiler instead of the code.
+- Generated vector tables (`firmware/apps/*_vectors.h`, `*_expected.h`, `gpu_kernel_words.h`) and `tests/generated/` are **gitignored**; the gates generate them from a seed (`--seed N`) so a failure is reproducible.
+- **Traps this track keeps re-teaching**: no libgcc in a `-nostdlib` link, so a 64-bit divide or multiply (`__udivdi3`, `__muldi3`) is an undefined symbol — saturate in 32-bit and accumulate in the ISR; a test that is CPU-only and prints nothing looks identical to a hung one to the harness, so raise `TB_QUIET` and emit progress; after any RTL change the console TB must be rebuilt (`rm hardware/sim/obj_dir_tb_soc_console/Vsoc_top`).
+- **F8 added a load port** to the GPU: `0x4000_2024` IMEM_ADDR (RW word index) and `0x4000_2028` IMEM_DATA (store installs that 16-bit word and advances the pointer). `gpu_fetch`'s array is write-only and reset-free to stay RAM-inferable. The write decode in `gpu_cmd_proc` is now 6-bit (it was 5, which aliased a write to `+0x20` onto `warp_pc[0]`). Completion is waited on as an interrupt: GPU done → CLINT `msip` → `mcause 0x80000003` → the weak `omni_msi_isr()` hook in `firmware/boot/fault.c`, overridden by `drivers/gpu_loader.c`.
+- **F6 finding worth remembering**: this core has **no MMU/PMP**, so load/store access faults cannot occur, and it does **not** raise misaligned-access exceptions (the LSU just performs the access). `firmware/boot/fault.c` splits the trap path — interrupts to their old handlers, exceptions to a decoded dump with the 28-register frame, and `ecall` from M-mode as a deliberate `[TEST] DONE` exit.
+- **F8 is Verilator-verified only** — this host has no Vivado, so its RAM-inference claim is argued from the port structure, not measured.
+
 ## Requirements
 
 | Package | Needed for | Arch/CachyOS package |

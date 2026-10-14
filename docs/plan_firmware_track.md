@@ -1,8 +1,9 @@
 # Firmware track — bare-metal C, gate by gate
 
-**Status (2026-10-12): F0 shipped, F1's gates are live and red.** Everything else on this
-page is still planned. Start with F1 — the rig in section 3 and both F1 gates run today, and
-the gate app carries weak stubs so you get per-case diagnostics from your first line of code.
+**Status (2026-10-13): F0–F8 are shipped and green.** All eight phases are implemented in
+the tree, each with its gate passing — see the verified-gate list under the phase table.
+The deal stood for F1: the gate app was given with weak stubs, and the per-case diagnostics
+it prints are what the implementation was grown against.
 
 Goal: grow the APU's firmware layer by hand, one feature at a time. Same deal as the
 Verilog phase: **the tests come first, the implementation is yours.** You are given a
@@ -112,6 +113,24 @@ gates print compactly: a green run is a dozen lines, and the gate app caps failu
 | F7 | monotonic time, delays, software timers | `drivers/tick.c` | F2 | 3–4 |
 | F8 | **capstone:** load a GPU kernel at runtime | `drivers/gpu_loader.c` (+ RTL) | F4,F7 | 8–12 |
 | F9 | *optional:* a peripheral in RTL + its driver | RTL + `drivers/spi.c` | F3,F8 | 6–10 |
+
+**Gates, as they actually run (all green 2026-10-13, `riscv64-linux-gnu-gcc` 16.2.1):**
+
+```
+./tests/test_libc.sh        ./tests/test_convert.sh    # F1, 130/130 and 260/260 checks
+./tests/test_printf.sh                                  # F2, 93/93 + 2 byte-identical streams
+./tests/test_uart.sh                                    # F3, burst 4/4, line+timeout 5/5
+./tests/test_framing.sh                                 # F4, 10/10 vs the receiver simulator
+./tests/test_alloc.sh                                   # F5, 12/12
+./tests/test_fault.sh                                   # F6, 4 fault kinds
+./tests/test_timers.sh                                  # F7, 13/13
+./tests/test_gpu_loader.sh                              # F8, 5/5 twice (kernel pushed / not)
+```
+
+F9 stays optional and unwritten. A handful of these gates disagree with the phase text below
+about names and output shapes — the list above is what exists: F3's gate is `test_uart.sh`
+(not `test_uart_burst.sh`), and F5's app prints `[TEST] SUMMARY 7/7` with the gate reporting
+`allocator: ALL PASS (12 checks)` rather than an `[ALLOC]` line.
 
 Effort is in focused evenings (2–3 h). Order is a suggestion: F1→F2→F3→F4 is a spine;
 F5/F6/F7 can be interleaved; F8 last.
@@ -235,7 +254,7 @@ power of two), `uart_rx_pump()` that drains the 16-byte RTL FIFO into the ring,
 `uart_rx_available()`, `uart_rx_read(buf, n)`, `uart_rx_getline(buf, n, timeout_ticks)`,
 plus counters: `rx_bytes`, `rx_dropped`, `rx_overruns`, `rx_errors`.
 
-**Gate.** `./tests/test_uart_burst.sh`, in two parts:
+**Gate.** `./tests/test_uart.sh`, in two parts:
 
 1. **Accounting.** The harness sends 1 byte, then a 64-byte burst, then a 1024-byte
    burst with no pacing (the RTL FIFO *will* overflow — it is 16 bytes deep). Assert the
@@ -301,7 +320,8 @@ bytes, fragmentation ratio, block count). First-fit or best-fit free list, 8-byt
 alignment, split on allocate, **coalesce with both neighbours on free**, double-free
 detection.
 
-**Gate.** `./tests/test_alloc.sh` → `[ALLOC] <n>/<n> PASS` and `leaks=0`:
+**Gate.** `./tests/test_alloc.sh` → `allocator: ALL PASS (12 checks)`, with the app's own
+`[TEST] SUMMARY 7/7` and `leaks=0` after the soak:
 
 - alignment of every returned pointer across sizes 1…4096;
 - coalescing: allocate A/B/C, free all three, one allocation of `A+B+C+24` must succeed;
@@ -437,17 +457,47 @@ require editing the gate to get there.
   (`docs/rtos_bringup.md`, `docs/plan_rtos_to_terminal.md`). Your phase notes are the
   same genre — and they are what makes the next phase cheap.
 
-## 6. Notes per phase (fill as you go)
+## 6. Notes per phase (the traps that actually cost time)
 
 ```
-F1:
-F2:
-F3:
-F4:
-F5:
-F6:
-F7:
-F8:
+F1: Two halves, and both bite. (a) The library: `size_t` needs <stddef.h> before use, and
+    strncmp must apply its bound BEFORE dereferencing or it reads past the buffer. (b) The
+    conversions: no libgcc in a -nostdlib link, so 64-bit divide/multiply are undefined
+    (__udivdi3/__muldi3) - saturate in 32-bit instead of reaching for unsigned long long.
+    omni_conv_errno() is per-call state, not global errno.
+F2: glibc is the oracle, so get the awkward cases from it rather than from intuition:
+    "%.0d" of 0 is ret=0 with a lone NUL (not "0"); "%-8.3d" of -7 is "-007    "; %p is a
+    bare 0x hex with no 0-padding. Build the gate app with -fno-builtin (the Makefile does
+    it for apps/%_test.o) or gcc folds snprintf(buf, n, "literal", ...) into an inline copy
+    and the test exercises the compiler instead of your formatter.
+F3: A UART test that only ever feeds bytes proves nothing about loss. Stall deliberately so
+    the 16-byte hardware FIFO overruns, then assert consumed + reconstructed loss == sent.
+    Read STATUS before RXDATA - reading RXDATA pops.
+F4: The receiver state machine is where the bugs live (escaping, resync, duplicate seq), so
+    its reference is a byte-level simulator, not hand-counted expectations. Anchor test
+    patterns ("seq=2 cmd=1") or "seq=2" will happily match "seq=255".
+F5: Give the allocator a heap_check() that proves the arena is coherent (sizes in bounds, the
+    walk ends exactly at the end, no two free neighbours) and call it after EVERY operation
+    of a randomised soak - then a failure names the first bad op instead of "something is
+    wrong". Real bug class worth knowing: the soak ran ~6M cycles with no UART output, so the
+    harness's 3M-cycle quiet window decided the test had finished and cut it off mid-run.
+F6: Route interrupts and exceptions separately: before this, every trap went to the timer
+    handler, so an illegal instruction silently advanced the clock. Which traps exist is a
+    property of the RTL: there is no MMU/PMP here (access faults cannot happen) and the core
+    does NOT raise misaligned-access exceptions - it just performs the access. The gate says
+    so explicitly rather than demanding a dump the hardware will never produce.
+F7: Armed mtimecmp is not an enabled interrupt: without mie.MTIE and mstatus.MIE every
+    callback silently never runs. mtime's low word rolls over every ~86 s, so elapsed time is
+    always an unsigned difference - and computing microseconds as mtime()/50 is a 64-bit
+    divide (F1's __udivdi3 trap again); accumulate a base in the ISR and divide 32 bits.
+F8: The GPU could only run a kernel flashed at synthesis time. It now takes words over
+    pbus (IMEM_ADDR 0x4000_2024, IMEM_DATA 0x4000_2028 installs and advances), and waits on
+    the completion interrupt (GPU done -> CLINT msip -> mcause 0x80000003) instead of polling
+    STATUS. The load port must stay RAM-inferable: write-only, no reset. Two traps: Verilator
+    exits on warnings here, so widening the command decode from 5 to 6 bits meant every case
+    item had to be widened too ("%Error: Exiting due to 7 warning(s)"); and a kernel's input
+    layout is in its own header - vector_add.S says A @ 0, B @ 16, C @ 32, and reading C from
+    word 0 returns A, which looks exactly like "the kernel did nothing".
 ```
 
 ## 7. What you will be able to say afterwards
