@@ -13,7 +13,7 @@ A **RISC-V Accelerated Processing Unit** — an RV32IM scalar CPU fused with a S
 - **SIMT GPU** — 4 warps × 4 lanes, 16-bit SIMT ISA, warp scheduler with latency hiding, scratchpad, vector/matmul/conv kernels, warp-level `BARRIER` sync
 - **SoC** — UART, timer/CLINT, GPIO, pbus MMIO decode, bare-metal firmware + scheduler
 - **FreeRTOS** — V10.5.1 preemptive RTOS on the core (M-mode CLINT port): measured 1.84 µs ISR latency, 9.84 µs context switch, interactive UART shell
-- **Fits on the board** — synthesis/implementation on XC7A100T: **~7,639 LUTs (12.1%) incl. 1,586 LUT-as-memory, 2,484 FF, 64.5 BRAM tiles, 15 DSP; 50 MHz timing met (WNS +1.253ns) → Fmax ≈ 53.4 MHz**
+- **Fits on the board** — synthesis + place-and-route on XC7A100T (Vivado 2026.1, run 2026-08-20): **7,516 LUTs (11.9%), 1,580 LUT-as-memory, 2,410 FF, 64.5 BRAM tiles, 15 DSP; WNS +0.685 ns at 50 MHz → Fmax ≈ 51.8 MHz** (the synthesis-only run reported 7,669 LUTs, WNS +3.348 ns). These are the last numbers measured with a real data-dependent kernel; they **predate the runtime GPU kernel loader**, which has not been re-synthesised because there is no Vivado on the current development machine.
 - **Compliance** — riscv-arch-test rv32im: **53/54** (1 skip, Zifencei `fence.i`: split I/D BRAMs)
 
 ## Interactive demo — a shell on the APU
@@ -84,6 +84,43 @@ Full hardware/software architecture: [`docs/architecture.md`](docs/architecture.
 | RTOS metrics | ISR latency 92 cyc avg (1.84 µs), 2-switch yield round trip 492 cyc (9.84 µs), tick jitter ±194 cyc over 1200+ ticks |
 | RTOS + GPU | tb_soc_rtos_q: 1000 items through a depth-8 `xQueue` in strict order; shell `gpu` command + ISR-semaphore path |
 | Interactive shell | tb_soc_shell + tests/test_shell.sh: typed FreeRTOS shell over honest-baud UART, GPU kernel launched from a shell command |
+| Bare-metal firmware track | F1–F8 gates, all green: string/memory 130/130, conversions 260/260, printf 93/93 + two streams byte-identical to glibc, UART RX burst 4/4 and line+timeout 5/5, CRC framing 10/10 against a receiver simulator, allocator 12/12 with a 2000-operation soak, fault handler 4/4 kinds, timers 13/13, runtime kernel loader 5/5 in both the pushed and not-pushed cases |
+| Characterization | `tests/test_bench.sh` — cycles per unit of work for 7 CPU workloads read from the core's own `mcycle`, cross-checked against the CLINT's independent `mtime` (they agree to 0.03%) |
+| GPU workload | `tests/test_mlp.sh` — a 2-layer MLP over 4 samples in parallel, with the GPU's kernel image reloaded four times mid-computation, and the GPU answer checked per lane against a scalar reference |
+| Continuous integration | `.github/workflows/gates.yml` — the RTL testbenches and all eleven firmware gates on every push |
+
+## What was measured, and what was not
+
+Everything above is **simulation**. Verilator models this RTL cycle for cycle, and the
+area/timing figures come from Vivado 2026.1 reports. **No bitstream has been built for a
+board and nothing has run on silicon** — so there is no measured Fmax, no power figure, and
+no silicon-versus-simulation comparison to offer. Claiming otherwise would be the easy lie.
+
+The cycle numbers are from the model at a nominal 50 MHz. They are trustworthy *relative to
+each other* — two independent counters agree, and every workload's cost grows with its input —
+and they are not a statement about wall-clock speed.
+
+A few of them are worth reading:
+
+| Measurement | Value |
+|---|---|
+| `memcpy`, byte-wise (this project's own library) | 24.1 cycles/byte |
+| `memset` / FNV-1a hash | 21.1 / 12.0 cycles/byte |
+| scalar 2×2 matmul | 15.1–19.1 cycles per multiply-accumulate |
+| insertion sort | 41 → 173 cycles/element as n goes 32 → 64 (quadratic, as expected) |
+| GPU launch → completion interrupt | **306 cycles** (against 7 cycles for the same 16 additions done scalar — 43.7×) |
+| a 4-sample 2-layer MLP, kernel reloaded per layer | **6,278 GPU cycles vs 233 scalar cycles** |
+
+That last row is the honest headline rather than a flattering one: at this size the GPU is
+**26.9× more expensive** than the CPU doing the same arithmetic, because each launch costs
+~306 cycles of MMIO, trap and interrupt latency to buy ~29 integer multiply-accumulates. The
+dispatch path is the design's real constraint, and the number above is how you would measure
+whether a bigger kernel or batched launches ever pay it off.
+
+CPI is deliberately absent. `minstret` exists as a readable CSR, but the core has no
+instruction-retired signal to count it from, so any CPI published today would be a guess.
+`mcycle` was not counting at all until this work: the characterization harness found it
+declared, readable, writable and silent, and fixed it.
 
 ## How the testbenches work
 
