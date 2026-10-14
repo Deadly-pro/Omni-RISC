@@ -51,7 +51,7 @@ echo "=== firmware-track gates (each runs a firmware app on the simulated SoC) =
 rm -f hardware/sim/obj_dir_tb_soc_console/Vsoc_top
 for g in test_libc test_convert test_printf test_uart test_framing test_alloc \
          test_fault test_timers test_gpu_loader test_bench test_mlp test_mlp_mem \
-         test_gpu_mem test_shell; do
+         test_gpu_mem test_cpi test_launch_sweep test_shell; do
     gate "$g"
 done
 
