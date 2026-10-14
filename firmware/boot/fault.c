@@ -21,6 +21,7 @@
 #include <omni/stdio.h>
 #include "../drivers/uart.h"
 #include "../drivers/timer.h"
+#include "../drivers/tick.h"
 
 static unsigned faults;
 
@@ -87,6 +88,12 @@ void trap_dispatch(uint32_t mcause, uint32_t mepc, uint32_t mtval,
                    const uint32_t *frame)
 {
     if (mcause & 0x80000000u) {
+        /* A machine timer interrupt goes to the software timer service when it is
+         * running; an app that programs the CLINT itself keeps the old path. */
+        if ((mcause & 0xFFu) == 7u && tick_enabled()) {
+            tick_isr();
+            return;
+        }
         timer_int_handler(mcause);      /* interrupts keep their old path */
         return;
     }
