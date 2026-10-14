@@ -1,0 +1,18 @@
+[tasks]
+bmc
+
+[options]
+bmc: mode bmc
+bmc: depth 24
+
+[engines]
+smtbmc
+
+[script]
+read_verilog -sv hardware/rtl/bus/mem_arbiter.v
+read_verilog -sv hardware/formal/mem_arbiter_fv.sv
+prep -top mem_arbiter_fv
+
+[files]
+hardware/rtl/bus/mem_arbiter.v
+hardware/formal/mem_arbiter_fv.sv

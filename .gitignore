@@ -18,6 +18,9 @@ firmware/apps/gpu_kernel_words.h
 firmware/apps/gpu_mlp_kernels.h
 firmware/apps/gpu_mem_kernel.h
 firmware/apps/gpu_mlp_mem_kernels.h
+
+# Yosys' area report (scripts/yosys_area.sh) - a second toolchain's estimate
+hardware/yosys/
 tests/generated/
 
 # Vivado
